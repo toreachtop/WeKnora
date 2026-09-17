@@ -527,7 +527,7 @@ func (m *SessionBoundManager) WriteSessionInputFile(
 
 // WriteSessionWorkspaceFile writes a model-authored file into the session's
 // remote sandbox, provisioning the sandbox on first call. Paths must sit
-// under /workspace and must not land in /workspace/input.
+// inside the session sandbox and must not land in /workspace/input.
 func (m *SessionBoundManager) WriteSessionWorkspaceFile(
 	ctx context.Context, sessionID, filePath string, content []byte,
 ) error {
@@ -624,7 +624,7 @@ func (m *SessionBoundManager) ListSessionFiles(
 	if err != nil || !ok {
 		return nil, err
 	}
-	return m.listFilesRecursive(ctx, handle, dir)
+	return m.walkSessionFiles(ctx, handle, dir)
 }
 
 // StatSessionFile returns metadata for a single file without downloading
@@ -703,32 +703,33 @@ func (m *SessionBoundManager) WriteSessionFile(
 // flags select the installer working-directory allowlist and bootstrap. Both
 // ordinary and install calls currently execute as root.
 type ShellExecOptions struct {
-	OnOutput func(stream string, chunk []byte)
+	// ExpectedSandboxID makes maintenance lookup-only: never allocate/rebuild,
+	// and fail if the binding changed since the caller selected this sandbox.
+	ExpectedSandboxID string
+	OnOutput          func(stream string, chunk []byte)
 
 	WorkDir string
 	Timeout time.Duration
 	Env     map[string]string
 
-	// AllowSkillsRoot lets installer calls work inside the skills image root.
+	// AllowSkillsRoot selects the installer workspace/skills working-directory scope.
 	// See cleanSessionWorkDir for why the work_dir allowlist is lexical only.
 	// Never set this from a model-authored tool such as shell_exec.
 	AllowSkillsRoot bool
 	// AsRoot forces root and selects the maintenance bootstrap: only WorkDir
 	// is prepared, without requiring /workspace/input or /workspace/output.
 	// The default account is already root, but the bootstrap still differs.
-	// AllowSkillsRoot separately permits a work_dir under the skills image root;
+	// AllowSkillsRoot separately selects the installer working-directory scope;
 	// it is not a filesystem boundary for commands running as root.
 	AsRoot bool
-	// SkipWorkspacePrep omits prepareSessionDirs. Desktop maintenance
-	// commands use absolute paths and do not write /workspace; the image
-	// already has that layout. Never set this from a model-authored tool
+	// SkipWorkspacePrep omits prepareSessionDirs. Desktop maintenance and
+	// workspace checkpoints operate on an existing layout. Never set this from a model-authored tool
 	// such as shell_exec — agents still need the workspace contract.
 	SkipWorkspacePrep bool
 }
 
 // ExecShellCommand runs a shell one-liner inside the session's persistent
-// sandbox. It preserves the shell_exec tool contract: /workspace-only work_dir
-// validation and provider default user.
+// sandbox. work_dir may name any absolute directory inside that sandbox.
 func (m *SessionBoundManager) ExecShellCommand(
 	ctx context.Context,
 	sessionID string,
@@ -753,17 +754,43 @@ func (m *SessionBoundManager) ExecShellCommandWithOptions(
 	command string,
 	opts ShellExecOptions,
 ) (*ExecuteResult, error) {
+	result, _, err := m.execShellCommandWithOutputSnapshot(ctx, sessionID, command, opts, "")
+	return result, err
+}
+
+// ShellOutputSnapshot contains two complete metadata listings of the same sandbox.
+// A nil snapshot means inspection failed; an empty snapshot means no output files.
+type ShellOutputSnapshot struct {
+	Before []RemoteDirEntry
+	After  []RemoteDirEntry
+}
+
+// ExecShellCommandWithOutputSnapshot resolves the session once for the command
+// and both artifact probes. Handles never escape this call or survive a rebuild.
+func (m *SessionBoundManager) ExecShellCommandWithOutputSnapshot(
+	ctx context.Context, sessionID, command string, opts ShellExecOptions, outputDir string,
+) (*ExecuteResult, *ShellOutputSnapshot, error) {
+	clean, ok := ValidatedSessionOutputDir(outputDir)
+	if !ok {
+		return nil, nil, errors.New("sandbox: invalid output directory")
+	}
+	return m.execShellCommandWithOutputSnapshot(ctx, sessionID, command, opts, clean)
+}
+
+func (m *SessionBoundManager) execShellCommandWithOutputSnapshot(
+	ctx context.Context, sessionID, command string, opts ShellExecOptions, outputDir string,
+) (*ExecuteResult, *ShellOutputSnapshot, error) {
 	if err := m.requireRemoteBackend(); err != nil {
-		return nil, fmt.Errorf(
+		return nil, nil, fmt.Errorf(
 			"sandbox: shell_exec requires the remote sandbox provider (current mode: %s)",
 			m.GetType(),
 		)
 	}
 	if strings.TrimSpace(sessionID) == "" {
-		return nil, errors.New("sandbox: session_id required for ExecShellCommand")
+		return nil, nil, errors.New("sandbox: session_id required for ExecShellCommand")
 	}
 	if strings.TrimSpace(command) == "" {
-		return nil, errors.New("sandbox: command required for ExecShellCommand")
+		return nil, nil, errors.New("sandbox: command required for ExecShellCommand")
 	}
 	timeout := opts.Timeout
 	if timeout <= 0 {
@@ -779,11 +806,41 @@ func (m *SessionBoundManager) ExecShellCommandWithOptions(
 	}
 	workDir, err := cleanSessionWorkDir(workDir, opts.AllowSkillsRoot)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	handle, err := m.resolveSession(ctx, sessionID)
-	if err != nil {
-		return nil, err
+	var handle RemoteSandboxHandle
+	if opts.ExpectedSandboxID != "" {
+		key, keyErr := m.sessionKey(ctx, sessionID)
+		if keyErr != nil {
+			return nil, nil, keyErr
+		}
+		exists, checkErr := m.checker.SessionExists(ctx, key)
+		if checkErr != nil {
+			return nil, nil, checkErr
+		}
+		if !exists {
+			return nil, nil, ErrSandboxSessionDeleted
+		}
+		var found bool
+		// Maintenance must recheck the binding even inside a file-operation scope.
+		handle, found, err = m.lookupSessionHandleForKey(ctx, key, opts.ExpectedSandboxID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !found || handle.ID() != opts.ExpectedSandboxID {
+			return nil, nil, errors.New("sandbox: bound sandbox changed before maintenance command")
+		}
+	} else {
+		handle, err = m.resolveSession(ctx, sessionID)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	var snapshot *ShellOutputSnapshot
+	if outputDir != "" {
+		if before, err := m.snapshotOutputFiles(ctx, handle, outputDir); err == nil {
+			snapshot = &ShellOutputSnapshot{Before: before}
+		}
 	}
 	user := DefaultSandboxExecUser
 	if opts.AsRoot {
@@ -794,13 +851,13 @@ func (m *SessionBoundManager) ExecShellCommandWithOptions(
 			// Installation owns the skill directory and does not depend on a
 			// writable session workspace (which is cleaned before snapshotting).
 			if err := m.prepareSessionDirs(ctx, handle, user, workDir); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		} else {
 			if err := m.prepareSessionDirs(
 				ctx, handle, user, SessionInputRoot, SessionOutputRoot, workDir,
 			); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		}
 	}
@@ -816,7 +873,14 @@ func (m *SessionBoundManager) ExecShellCommandWithOptions(
 		Timeout:  timeout,
 	})
 	duration := time.Since(start)
-	return remoteExecuteResult(execResult, execErr, duration), nil
+	if snapshot != nil {
+		if after, err := m.snapshotOutputFiles(ctx, handle, outputDir); err == nil {
+			snapshot.After = after
+		} else {
+			snapshot = nil
+		}
+	}
+	return remoteExecuteResult(execResult, execErr, duration), snapshot, nil
 }
 
 // SessionShellExecutor advertises the shell-execution capability while the
@@ -1209,12 +1273,36 @@ func (m *SessionBoundManager) lookupSessionHandle(
 	if err != nil {
 		return nil, false, err
 	}
+	// Serialise scope lookups so even concurrent reads connect only once.
+	// The scope is owned by one operation, not by this long-lived manager.
+	if scope, ok := ctx.Value(sessionFileOperationKey{}).(*sessionFileOperation); ok {
+		scope.mu.Lock()
+		defer scope.mu.Unlock()
+		cacheKey := sessionFileHandleKey{manager: m, session: key}
+		if handle := scope.handles[cacheKey]; handle != nil {
+			return handle, true, nil
+		}
+		handle, found, err := m.lookupSessionHandleForKey(ctx, key, "")
+		if err == nil && found {
+			scope.handles[cacheKey] = handle
+		}
+		return handle, found, err
+	}
+	return m.lookupSessionHandleForKey(ctx, key, "")
+}
+
+func (m *SessionBoundManager) lookupSessionHandleForKey(
+	ctx context.Context, key SessionSandboxKey, expectedID string,
+) (RemoteSandboxHandle, bool, error) {
 	binding, err := m.bindings.Get(ctx, key)
 	if err != nil {
 		return nil, false, fmt.Errorf("sandbox: read session binding: %w", err)
 	}
 	if binding == nil || binding.Provider != m.client.Provider() {
 		return nil, false, nil
+	}
+	if expectedID != "" && binding.SandboxID != expectedID {
+		return nil, false, errors.New("sandbox: bound sandbox changed before maintenance command")
 	}
 	handle, err := m.client.Connect(ctx, RemoteConnectRequest{
 		SandboxID:          binding.SandboxID,
@@ -1234,22 +1322,19 @@ func (m *SessionBoundManager) lookupSessionHandle(
 	return handle, true, nil
 }
 
-func (m *SessionBoundManager) listFilesRecursive(
-	ctx context.Context,
-	handle RemoteSandboxHandle,
-	dir string,
+// snapshotOutputFiles does not probe with Stat: a missing output directory is
+// an empty baseline, while permission and transport errors remain failures.
+func (m *SessionBoundManager) snapshotOutputFiles(
+	ctx context.Context, handle RemoteSandboxHandle, dir string,
 ) ([]RemoteDirEntry, error) {
-	stat, err := m.client.Stat(ctx, handle, dir)
-	if err != nil {
-		if IsRemoteNotFound(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("sandbox: stat %s: %w", dir, err)
-	}
-	if stat == nil {
-		return nil, nil
-	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	return m.walkSessionFiles(ctx, handle, dir)
+}
 
+func (m *SessionBoundManager) walkSessionFiles(
+	ctx context.Context, handle RemoteSandboxHandle, dir string,
+) ([]RemoteDirEntry, error) {
 	stack := []string{dir}
 	var files []RemoteDirEntry
 	for len(stack) > 0 {
@@ -1258,6 +1343,11 @@ func (m *SessionBoundManager) listFilesRecursive(
 
 		entries, err := m.client.ListDir(ctx, handle, cur)
 		if err != nil {
+			// Only a missing root is an empty listing. A vanished subdirectory
+			// makes this snapshot incomplete and must not publish partial links.
+			if cur == dir && IsRemoteNotFound(err) {
+				return nil, nil
+			}
 			return nil, err
 		}
 		for _, entry := range entries {
@@ -1334,9 +1424,8 @@ func cleanSessionInputPath(filePath string) (string, error) {
 	)
 }
 
-// cleanSessionWorkspaceWritePath keeps model-authored writes inside the
-// session workspace and out of the attachment tree. Validation is lexical
-// (path.Clean plus prefix checks), matching cleanSessionWorkDir.
+// cleanSessionWorkspaceWritePath normalizes model-authored sandbox writes and
+// protects staged attachments. The remote session binding isolates the files.
 func cleanSessionWorkspaceWritePath(filePath string) (string, error) {
 	clean := ResolveWorkspacePath(filePath)
 	if !path.IsAbs(clean) || clean == "." || clean == "/" {
@@ -1345,34 +1434,23 @@ func cleanSessionWorkspaceWritePath(filePath string) (string, error) {
 	if clean == SessionWorkspaceRoot || clean == SessionOutputRoot || clean == SessionInputRoot {
 		return "", fmt.Errorf("sandbox: workspace write path %q is a directory, not a file", filePath)
 	}
-	if !strings.HasPrefix(clean, SessionWorkspaceRoot+"/") {
-		return "", fmt.Errorf("sandbox: workspace write path %q is outside %s", filePath, SessionWorkspaceRoot)
-	}
 	if strings.HasPrefix(clean, SessionInputRoot+"/") {
 		return "", fmt.Errorf("sandbox: session input %s is read-only", SessionInputRoot)
 	}
 	return clean, nil
 }
 
-// cleanSessionWorkDir keeps shell_exec inside directories we are willing to let
-// an agent work in. Ordinary sessions get /workspace only.
-//
-// Validation is lexical (path.Clean plus prefix checks): a symlink under an
-// allowed root that resolves elsewhere at execution time is not detected and
-// that is intentional. The only caller that passes allowSkillsRoot also passes
-// AsRoot and runs arbitrary install shell commands, so a symlink would grant
-// nothing those commands cannot already reach via cd or absolute paths. For
-// ordinary sessions the allowlist is unchanged and its lexical nature is
-// pre-existing. The allowlist stops casual wandering and makes intent
-// auditable; the real isolation boundary is the remote sandbox itself.
-//
-// allowSkillsRoot widens it to the skills image root for install/maintenance
-// sessions, so the installer agent can set work_dir to the skill directory and
-// run ordinary relative commands instead of composing long absolute paths. It
-// is a widening, not a removal: everything outside these two roots is still
-// refused.
+// cleanSessionWorkDir requires an absolute sandbox-local working directory.
+// Ordinary calls may work anywhere; the install/maintenance option retains its
+// explicit workspace/skills scope. Neither check changes filesystem privileges.
 func cleanSessionWorkDir(workDir string, allowSkillsRoot bool) (string, error) {
 	clean := path.Clean(strings.TrimSpace(workDir))
+	if !path.IsAbs(clean) {
+		return "", fmt.Errorf("sandbox: work dir %q must be absolute", workDir)
+	}
+	if !allowSkillsRoot {
+		return clean, nil
+	}
 	if clean == SessionWorkspaceRoot || strings.HasPrefix(clean, SessionWorkspaceRoot+"/") {
 		return clean, nil
 	}
