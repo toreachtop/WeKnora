@@ -43,6 +43,28 @@
         <div class="user_msg">
             {{ content }}
         </div>
+        <div v-if="timestamp || content || canFork" class="user_msg_meta">
+            <time v-if="timestamp" class="user_msg_time" :datetime="timestamp.datetime" :title="fullTimestamp">
+                {{ timestamp.time }}
+            </time>
+            <div v-if="content || canFork" class="user_msg_actions">
+                <t-tooltip v-if="content" :content="t('agent.copy')">
+                    <button type="button" class="user_msg_action" :aria-label="t('agent.copy')" @click="handleCopy">
+                        <t-icon name="copy" />
+                    </button>
+                </t-tooltip>
+                <t-tooltip v-if="canFork" :content="forkTooltip">
+                    <button type="button" class="user_msg_action" :aria-label="forkTooltip" @click="emit('fork', messageId)">
+                        <t-icon name="git-branch" />
+                    </button>
+                </t-tooltip>
+            </div>
+        </div>
+        <div v-if="steerFailed" class="steer-failure" role="status">
+            <span>{{ t('input.messages.steerFailed') }}</span>
+            <t-tooltip :content="t('input.steerRetry')"><button type="button" :aria-label="t('input.steerRetry')" @click="emit('retry-steer')"><t-icon name="refresh" /></button></t-tooltip>
+            <t-tooltip :content="t('common.remove')"><button type="button" :aria-label="t('common.remove')" @click="emit('remove-steer')"><t-icon name="close" /></button></t-tooltip>
+        </div>
         <picturePreview :reviewImg="reviewImg" :reviewUrl="reviewUrl" @closePreImg="closePreImg" />
     </div>
 </template>
@@ -54,6 +76,9 @@ import { useI18n } from 'vue-i18n';
 import { useChatAttachmentPreviewDrawer } from '@/composables/useChatAttachmentPreviewDrawer';
 import { isPreviewableAttachment, resolveAttachmentFileType } from '@/utils/attachmentPreview';
 import { SKILL_ICON } from '@/types/mention';
+import { copyWithToast } from '@/utils/clipboard';
+import { formatMessageTimestamp, getConversationTimestampModel } from '@/utils/messageTimestamp';
+const emit = defineEmits(['retry-steer', 'remove-steer', 'fork']);
 
 const { t } = useI18n();
 
@@ -70,6 +95,7 @@ const mentionTagIcon = (item) => {
 };
 
 const props = defineProps({
+    steerFailed: { type: Boolean, default: false },
     content: {
         type: String,
         required: false
@@ -101,8 +127,26 @@ const props = defineProps({
     sessionId: {
         type: String,
         default: ''
+    },
+    messageId: {
+        type: String,
+        default: ''
+    },
+    createdAt: {
+        type: String,
+        default: ''
+    },
+    canFork: {
+        type: Boolean,
+        default: false
     }
 });
+
+const canFork = computed(() => props.canFork === true && !props.embeddedMode);
+const forkTooltip = '从这里分叉出新会话';
+const timestamp = computed(() => getConversationTimestampModel(props.createdAt));
+const fullTimestamp = computed(() => formatMessageTimestamp(props.createdAt));
+const handleCopy = () => copyWithToast(props.content, 'common.copySuccess', 'common.copyFailed');
 
 const attachmentPreviewDrawer = useChatAttachmentPreviewDrawer();
 
@@ -188,6 +232,7 @@ const closePreImg = () => {
 @import '../../../components/css/chat-resource-chips.less';
 
 .user_msg_container {
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: flex-end;
@@ -354,6 +399,82 @@ html[theme-mode="dark"] {
     .user_msg {
         background: var(--td-bg-color-secondarycontainer);
         color: var(--td-text-color-primary);
+    }
+}
+</style>
+
+<style scoped>
+.steer-failure { display: flex; align-items: center; justify-content: flex-end; gap: 4px; font-size: 12px; color: var(--td-text-color-secondary); margin-bottom: 4px; }
+.steer-failure { margin-top: 6px; color: var(--td-error-color); }
+.steer-failure button { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
+.steer-failure button:hover { background: var(--td-bg-color-secondarycontainer); }
+
+.user_msg_meta {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    min-height: 28px;
+    padding-right: 4px;
+    color: var(--td-text-color-placeholder);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 140ms ease;
+}
+
+.user_msg_time {
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    line-height: 20px;
+}
+
+.user_msg_actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.user_msg_container:hover .user_msg_meta,
+.user_msg_container:focus-within .user_msg_meta {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.user_msg_action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font-size: 16px;
+    cursor: pointer;
+}
+
+.user_msg_action:hover {
+    color: var(--td-text-color-secondary);
+    background: var(--td-bg-color-container-hover);
+}
+
+.user_msg_action:focus-visible {
+    outline: 2px solid var(--td-text-color-secondary);
+    outline-offset: 2px;
+}
+
+@media (hover: none) {
+    .user_msg_meta {
+        opacity: 1;
+        pointer-events: auto;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .user_msg_meta {
+        transition: none;
     }
 }
 </style>

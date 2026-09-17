@@ -78,6 +78,7 @@ cp -R "cmd/desktop/build/bin/${APP_BUNDLE}" "dist/"
 RESOURCES_DIR="${DIST_DIR}/Contents/Resources"
 mkdir -p "${RESOURCES_DIR}/config"
 mkdir -p "${RESOURCES_DIR}/migrations/sqlite"
+bash ./scripts/copy-licenses.sh "${RESOURCES_DIR}"
 
 if [ -f .env1.lite.example ]; then
     cp .env1.lite.example "${RESOURCES_DIR}/.env"

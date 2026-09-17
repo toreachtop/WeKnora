@@ -14,7 +14,9 @@ import (
 // WebSearchProviderType represents the type of web search provider
 type WebSearchProviderType string
 
+// Supported web search provider identifiers.
 const (
+	WebSearchProviderTypeBrave      WebSearchProviderType = "brave"
 	WebSearchProviderTypeBing       WebSearchProviderType = "bing"
 	WebSearchProviderTypeGoogle     WebSearchProviderType = "google"
 	WebSearchProviderTypeDuckDuckGo WebSearchProviderType = "duckduckgo"
@@ -27,6 +29,7 @@ const (
 	WebSearchProviderTypeExa        WebSearchProviderType = "exa"
 	WebSearchProviderTypeMetaso     WebSearchProviderType = "metaso"
 	WebSearchProviderTypeBocha      WebSearchProviderType = "bocha"
+	WebSearchProviderTypeSerply     WebSearchProviderType = "serply"
 )
 
 // WebSearchProviderEntity represents a configured web search provider instance for a workspace.
@@ -173,6 +176,16 @@ type WebSearchProviderConfigFieldOption struct {
 // GetWebSearchProviderTypes returns metadata for all supported provider types.
 func GetWebSearchProviderTypes() []WebSearchProviderTypeInfo {
 	return []WebSearchProviderTypeInfo{
+		{
+			ID: "brave", Name: "Brave Search", RequiresAPIKey: true, SupportsProxy: true,
+			Description: "Brave Search API (supports country and freshness filters)",
+			DocsURL:     "https://api-dashboard.search.brave.com/app/keys",
+		},
+		{
+			ID: "serply", Name: "Serply", RequiresAPIKey: true, SupportsProxy: true,
+			Description: "Serply Google search API (supports country and freshness filters)",
+			DocsURL:     "https://serply.io/docs",
+		},
 		{
 			ID:             "duckduckgo",
 			Name:           "DuckDuckGo",

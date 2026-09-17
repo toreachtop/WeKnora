@@ -4227,6 +4227,12 @@ const docTemplate = `{
                         "description": "排序方式: asc(按更新时间正序), 默认按更新时间倒序",
                         "name": "sort_order",
                         "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "启用状态筛选；不传时返回全部",
+                        "name": "is_enabled",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -5180,6 +5186,91 @@ const docTemplate = `{
                     },
                     "403": {
                         "description": "权限不足",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
+        "/knowledge-bases/{id}/knowledge/batch-download": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "将同一知识库的最多 200 个文档打包为 ZIP，原始内容合计不超过 512 MiB。无原文件的条目会被跳过；无权访问、跨库或读取失败时不返回残缺压缩包。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/zip"
+                ],
+                "tags": [
+                    "知识管理"
+                ],
+                "summary": "批量下载知识文件",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "知识库ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "文档ID列表",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.BatchDownloadKnowledgeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ZIP 压缩包",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
                         }
@@ -8623,6 +8714,142 @@ const docTemplate = `{
                 }
             }
         },
+        "/mcp-services/{id}/metadata": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "只读数据库，不连接上游。未同步时 data 为 null；连接配置变更后 stale 为 true。OAuth 目录按当前授权主体隔离。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "MCP服务"
+                ],
+                "summary": "读取已保存的 MCP 工具目录",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "MCP服务ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "目录快照",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "401": {
+                        "description": "OAuth 目录缺少授权主体",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "404": {
+                        "description": "服务不存在",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
+        "/mcp-services/{id}/metadata/refresh": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "显式连接上游并原子替换完整目录。OAuth 服务写入当前用户的快照，Viewer 及以上可调用；静态认证写入租户共享快照，需要 Admin。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "MCP服务"
+                ],
+                "summary": "同步 MCP 工具目录",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "MCP服务ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "同步后的目录快照",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "目录不完整或校验失败",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "401": {
+                        "description": "OAuth 目录缺少授权主体",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "静态认证目录需要管理员刷新",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "404": {
+                        "description": "服务不存在",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "409": {
+                        "description": "刷新期间连接配置已变更",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "503": {
+                        "description": "元数据存储不可用",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
         "/mcp-services/{id}/oauth/authorize-url": {
             "post": {
                 "security": [
@@ -8853,7 +9080,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "为指定 MCP 服务下的某个工具设置/更新审批要求",
+                "description": "为指定 MCP 服务下的某个工具更新启用状态和/或人工审批要求。至少提供 require_approval 或 enabled 之一；省略的字段保持原值。",
                 "consumes": [
                     "application/json"
                 ],
@@ -8863,7 +9090,7 @@ const docTemplate = `{
                 "tags": [
                     "MCP服务"
                 ],
-                "summary": "设置 MCP 工具人工审批策略",
+                "summary": "设置 MCP 工具策略",
                 "parameters": [
                     {
                         "type": "string",
@@ -8880,7 +9107,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "{require_approval: bool}",
+                        "description": "{require_approval?: bool, enabled?: bool}",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -19698,6 +19925,10 @@ const docTemplate = `{
                 "url": {
                     "description": "Optional: required for SSE/HTTP Streamable",
                     "type": "string"
+                },
+                "usage_instructions": {
+                    "description": "UsageInstructions is maintained locally and is not overwritten by directory refresh.",
+                    "type": "string"
                 }
             }
         },
@@ -21201,7 +21432,7 @@ const docTemplate = `{
                     }
                 },
                 "allow_public_inbound": {
-                    "description": "AllowPublicInbound exposes the sandbox's public URL without a\ncredential. false requires every inbound request to carry the\nper-sandbox traffic access token.",
+                    "description": "AllowPublicInbound is accepted on the wire for old payloads and then\ncleared. Inbound is always credential-required; a true value has no\nruntime effect.",
                     "type": "boolean"
                 },
                 "cube_rules": {
@@ -22090,6 +22321,10 @@ const docTemplate = `{
                     "description": "SkillRollout decides whether sessions that already hold a sandbox of\nthis config rebuild after a skill install or removal. Empty and\nSkillRolloutNextTurn rebuild on the next chat turn. SkillRolloutNewSession\nleaves those sandboxes on the previous image; only sessions that start\nafterwards boot the new snapshot.",
                     "type": "string"
                 },
+                "terminal_idle_disconnect_sec": {
+                    "description": "TerminalIdleDisconnectSec is how long an interactive terminal may go\nwithout keystrokes or PTY output before WeKnora closes the connection\nso the sandbox can pause on its provider TTL. 0 uses the built-in\ndefault (15 minutes). Not an identity field.",
+                    "type": "integer"
+                },
                 "volume_mount": {
                     "description": "VolumeMount configures an optional shared volume mounted into every\nsandbox created for this tenant. Currently used for tenant-installed\nskills, but the configuration itself is skill-agnostic and can serve\nany volume-mount use case (shared datasets, pre-installed toolchains,\netc.).",
                     "allOf": [
@@ -22172,6 +22407,14 @@ const docTemplate = `{
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.ToolResult"
                         }
                     ]
+                },
+                "target": {
+                    "description": "Target identifies the actual proxy target; Name/Args retain the model call for replay.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.ToolCallTarget"
+                        }
+                    ]
                 }
             }
         },
@@ -22181,6 +22424,24 @@ const docTemplate = `{
                 "type": "array",
                 "items": {
                     "type": "integer"
+                }
+            }
+        },
+        "github_com_Tencent_WeKnora_internal_types.ToolCallTarget": {
+            "type": "object",
+            "properties": {
+                "args": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "name": {
+                    "type": "string"
+                },
+                "service_name": {
+                    "type": "string"
+                },
+                "tool_name": {
+                    "type": "string"
                 }
             }
         },
@@ -22612,6 +22873,7 @@ const docTemplate = `{
         "github_com_Tencent_WeKnora_internal_types.WebSearchProviderType": {
             "type": "string",
             "enum": [
+                "brave",
                 "bing",
                 "google",
                 "duckduckgo",
@@ -22623,9 +22885,11 @@ const docTemplate = `{
                 "zhipu",
                 "exa",
                 "metaso",
-                "bocha"
+                "bocha",
+                "serply"
             ],
             "x-enum-varnames": [
+                "WebSearchProviderTypeBrave",
                 "WebSearchProviderTypeBing",
                 "WebSearchProviderTypeGoogle",
                 "WebSearchProviderTypeDuckDuckGo",
@@ -22637,7 +22901,8 @@ const docTemplate = `{
                 "WebSearchProviderTypeZhipu",
                 "WebSearchProviderTypeExa",
                 "WebSearchProviderTypeMetaso",
-                "WebSearchProviderTypeBocha"
+                "WebSearchProviderTypeBocha",
+                "WebSearchProviderTypeSerply"
             ]
         },
         "github_com_Tencent_WeKnora_internal_types.WikiConfig": {
@@ -23393,6 +23658,22 @@ const docTemplate = `{
                 },
                 "kb_id": {
                     "type": "string"
+                }
+            }
+        },
+        "internal_handler.BatchDownloadKnowledgeRequest": {
+            "type": "object",
+            "required": [
+                "ids"
+            ],
+            "properties": {
+                "ids": {
+                    "type": "array",
+                    "maxItems": 200,
+                    "minItems": 1,
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },

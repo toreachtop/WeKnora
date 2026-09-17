@@ -51,10 +51,13 @@ import (
 	"github.com/Tencent/WeKnora/internal/application/service/file"
 	"github.com/Tencent/WeKnora/internal/application/service/memory"
 	"github.com/Tencent/WeKnora/internal/application/service/retriever"
+	"github.com/Tencent/WeKnora/internal/browserskill"
 	"github.com/Tencent/WeKnora/internal/common"
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/database"
 	"github.com/Tencent/WeKnora/internal/datasource"
+	confluenceConnector "github.com/Tencent/WeKnora/internal/datasource/connector/confluence"
+	dingtalkConnector "github.com/Tencent/WeKnora/internal/datasource/connector/dingtalk"
 	"github.com/Tencent/WeKnora/internal/datasource/connector/feishu/core"
 	"github.com/Tencent/WeKnora/internal/datasource/connector/feishu/drive"
 	"github.com/Tencent/WeKnora/internal/datasource/connector/feishu/wiki"
@@ -85,6 +88,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/models/limiter"
 	"github.com/Tencent/WeKnora/internal/models/utils/ollama"
 	"github.com/Tencent/WeKnora/internal/router"
+	"github.com/Tencent/WeKnora/internal/sandbox"
 	"github.com/Tencent/WeKnora/internal/storageallowlist"
 	"github.com/Tencent/WeKnora/internal/stream"
 	"github.com/Tencent/WeKnora/internal/tracing/langfuse"
@@ -194,6 +198,13 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	// from the tenant's own configuration, falling back to the singleton above
 	// for tenants that configured nothing.
 	must(container.Provide(service.NewTenantSandboxConfigLoader))
+	must(container.Provide(service.NewForkBootstrapperFromRepos))
+	must(container.Provide(func(b *service.ForkBootstrapper) sandbox.SessionBootstrapper {
+		if b == nil {
+			return nil
+		}
+		return b
+	}))
 	must(container.Provide(newTenantSandboxResolver))
 
 	// Business service layer
@@ -289,6 +300,14 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	}))
 	// Expose Gate as MCPApproval interface so AgentService and others can depend on the abstraction.
 	must(container.Provide(func(g *approval.Gate) approval.MCPApproval { return g }))
+	must(container.Provide(func(cleaner interfaces.ResourceCleaner, db *gorm.DB) (*browserskill.Manager, error) {
+		manager := browserskill.NewManager(browserskill.NewStore(db))
+		if err := manager.ValidateConfiguration(); err != nil {
+			return nil, err
+		}
+		cleaner.RegisterWithName("BrowserSkill", func() error { manager.Close(); return nil })
+		return manager, nil
+	}))
 	must(container.Provide(service.NewAgentService))
 
 	// Session service (depends on agent service)
@@ -310,6 +329,66 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	// The factory returns nil when the sandbox backend does not support
 	// per-session file inspection; downstream code guards on nil.
 	must(container.Provide(service.NewArtifactCollectorFromSandboxManager))
+
+	// WorkspaceCheckpointer commits the sandbox /workspace after each agent
+	// turn so session fork can roll a forked sandbox back to a given message.
+	// The process-wide Manager is DisabledManager, so the runner and ID lookup
+	// go through the session pin + per-tenant resolver — the same path
+	// ArtifactCollector already uses. Direct Manager type-asserts still win
+	// when a deployment injects a SessionBoundManager as the process default.
+	must(container.Provide(func(
+		mgr sandbox.Manager,
+		resolver sandbox.TenantSandboxResolver,
+		pinner *service.SessionSandboxPinner,
+	) *service.PinnedSessionSandbox {
+		return service.NewPinnedSessionSandbox(pinner, resolver, mgr)
+	}))
+	must(container.Provide(func(
+		mgr sandbox.Manager,
+		pinned *service.PinnedSessionSandbox,
+	) *service.WorkspaceCheckpointer {
+		if runner, ok := mgr.(service.SandboxShellRunner); ok {
+			return service.NewWorkspaceCheckpointer(runner)
+		}
+		return service.NewWorkspaceCheckpointer(pinned)
+	}))
+	must(container.Provide(func(
+		mgr sandbox.Manager,
+		pinned *service.PinnedSessionSandbox,
+	) session.SandboxIDLookup {
+		if lookup, ok := mgr.(session.SandboxIDLookup); ok {
+			return lookup
+		}
+		if pinned == nil {
+			return nil
+		}
+		return pinned
+	}))
+	must(container.Provide(func(
+		mgr sandbox.Manager,
+		pinned *service.PinnedSessionSandbox,
+	) service.SessionForkSandboxPort {
+		if port, ok := mgr.(service.SessionForkSandboxPort); ok {
+			return port
+		}
+		if pinned == nil {
+			return nil
+		}
+		return pinned
+	}))
+	must(container.Provide(service.NewSessionForkServiceFromRepos))
+
+	// SandboxTerminalService opens interactive PTYs on session sandboxes for
+	// the frontend terminal panel. First-use provisioning takes a sandbox
+	// config ID already resolved by the WebSocket handler (own or shared agent).
+	must(container.Provide(service.NewSandboxTerminalService))
+	// One-shot desktop handshake tickets. Falls back to an in-process store
+	// when Redis is absent (Lite mode), same as the binding store.
+	must(container.Provide(service.NewSandboxDesktopTicketStore))
+	must(container.Provide(service.NewSandboxDesktopLastStore))
+	// Desktop relay. It rides SandboxTerminalService's resolution path so the
+	// desktop always lands on the session's existing sandbox.
+	must(container.Provide(service.NewSandboxDesktopService))
 
 	logger.Debugf(ctx, "[Container] Registering task enqueuer...")
 	redisAvailable := os.Getenv("REDIS_ADDR") != ""
@@ -388,6 +467,17 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	// block above — starting the reaper any earlier panics.
 	must(container.Invoke(startTenantSkillReaper))
 	logger.Debugf(ctx, "[Container] Tenant skill reaper registered")
+	must(container.Provide(func(
+		sessions interfaces.SessionRepository,
+		resolver sandbox.TenantSandboxResolver,
+		mgr sandbox.Manager,
+	) *service.ForkSnapshotReaper {
+		return service.NewForkSnapshotReaperFromRepos(
+			sessions, service.NewResolverForkSnapshotDeleter(resolver, mgr),
+		)
+	}))
+	must(container.Invoke(startForkSnapshotReaper))
+	logger.Debugf(ctx, "[Container] Fork snapshot reaper registered")
 
 	// HTTP handlers layer
 	logger.Debugf(ctx, "[Container] Registering HTTP handlers...")
@@ -1628,6 +1718,8 @@ func registerWebSearchProviders(registry *infra_web_search.Registry) {
 	registry.Register("exa", infra_web_search.NewExaProvider)
 	registry.Register("metaso", infra_web_search.NewMetasoProvider)
 	registry.Register("bocha", infra_web_search.NewBochaProvider)
+	registry.Register("brave", infra_web_search.NewBraveProvider)
+	registry.Register("serply", infra_web_search.NewSerplyProvider)
 }
 
 // registerIMService registers adapter factories, loads enabled channels, and
@@ -1683,8 +1775,14 @@ func initConnectorRegistry() (*datasource.ConnectorRegistry, error) {
 	if err := registry.Register(notionConnector.NewConnector()); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("register notion connector: %w", err))
 	}
+	if err := registry.Register(confluenceConnector.NewConnector()); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("register confluence connector: %w", err))
+	}
 	if err := registry.Register(yuqueConnector.NewConnector()); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("register yuque connector: %w", err))
+	}
+	if err := registry.Register(dingtalkConnector.NewConnector()); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("register dingtalk connector: %w", err))
 	}
 	if err := registry.Register(imaConnector.NewConnector()); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("register ima connector: %w", err))
@@ -1697,7 +1795,6 @@ func initConnectorRegistry() (*datasource.ConnectorRegistry, error) {
 	}
 
 	// Future connectors will be registered here:
-	// if err := registry.Register(confluenceConnector.NewConnector()); err != nil { ... }
 	// if err := registry.Register(githubConnector.NewConnector()); err != nil { ... }
 
 	if errs != nil {
@@ -1748,6 +1845,38 @@ func startTenantSkillReaper(svc *service.TenantSkillService, cleaner interfaces.
 	}
 	cleaner.RegisterWithName("TenantSkillReaper", func() error {
 		svc.Stop()
+		return nil
+	})
+}
+
+// startForkSnapshotReaper collects snapshots of forks that were never opened.
+// Best-effort: a wiring gap is logged but does NOT abort the container.
+func startForkSnapshotReaper(reaper *service.ForkSnapshotReaper, cleaner interfaces.ResourceCleaner) {
+	if reaper == nil {
+		logger.Warnf(context.Background(), "[Container] fork snapshot reaper unavailable")
+		return
+	}
+	if cleaner == nil {
+		logger.Warnf(context.Background(), "[Container] fork snapshot reaper start failed: resource cleaner missing")
+		return
+	}
+	stop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(6 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if _, err := reaper.ReapOnce(context.Background()); err != nil {
+					logger.Warnf(context.Background(), "[ForkSnapshotReaper] reap failed: %v", err)
+				}
+			case <-stop:
+				return
+			}
+		}
+	}()
+	cleaner.RegisterWithName("ForkSnapshotReaper", func() error {
+		close(stop)
 		return nil
 	})
 }

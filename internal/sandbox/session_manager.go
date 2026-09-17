@@ -28,11 +28,11 @@ import (
 	"fmt"
 	"log"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/Tencent/WeKnora/internal/tracing/langfuse"
 	"github.com/Tencent/WeKnora/internal/types"
 )
 
@@ -109,6 +109,10 @@ type SessionBoundManagerConfig struct {
 	// Set by the per-tenant resolver, which builds a manager per request.
 	// See NewSessionBoundManager.
 	SkipHealthProbe bool
+
+	// Bootstrapper customises the first sandbox create of individual sessions
+	// (session fork). Optional: nil is the ordinary path.
+	Bootstrapper SessionBootstrapper
 }
 
 // NewSessionBoundManager wires the manager with an explicit RemoteSandboxClient
@@ -173,6 +177,11 @@ func NewSessionBoundManager(deps SessionBoundManagerConfig) (*SessionBoundManage
 
 	client := wrapLangfuseRemoteClient(deps.Client)
 
+	bootstrapper := deps.Bootstrapper
+	if withClient, ok := bootstrapper.(SessionBootstrapperWithClient); ok {
+		bootstrapper = withClient.WithClient(client)
+	}
+
 	lifecycle, err := newRemoteSessionLifecycle(
 		client,
 		deps.Store,
@@ -180,6 +189,7 @@ func NewSessionBoundManager(deps SessionBoundManagerConfig) (*SessionBoundManage
 		createRequest,
 		sessionLifecycleCleanupTimeout,
 		deps.ConfigID,
+		bootstrapper,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("session bound manager: %w", err)
@@ -224,6 +234,16 @@ func (m *SessionBoundManager) GetType() SandboxType {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.activeType
+}
+
+// TerminalIdleDisconnect is how long an open PTY or desktop relay may sit
+// idle before the WebSocket is closed. Missing or out-of-range workspace
+// values are clamped onto the built-in default so a stored 0 still disconnects.
+func (m *SessionBoundManager) TerminalIdleDisconnect() time.Duration {
+	if m == nil || m.config == nil {
+		return DefaultTerminalIdleDisconnect
+	}
+	return EffectiveTerminalIdleDisconnect(m.config.TerminalIdleDisconnect)
 }
 
 // GetSandbox exposes a diagnostic Sandbox for callers that need to inspect
@@ -296,11 +316,8 @@ func (m *SessionBoundManager) ensureSessionWorkspaceDirs(
 func (m *SessionBoundManager) prepareSessionDirs(
 	ctx context.Context, handle RemoteSandboxHandle, user string, dirs ...string,
 ) (prepErr error) {
-	ctx, span := langfuse.GetManager().StartSpan(ctx, langfuse.SpanOptions{
-		Name:     "sandbox.ensure_workspace",
-		Input:    map[string]interface{}{"directories": dirs, "user": user},
-		Metadata: sandboxHandleMeta(handle),
-	})
+	ctx, span := startSandboxSpan(ctx, "sandbox.ensure_workspace",
+		map[string]interface{}{"directories": dirs, "user": user}, sandboxHandleMeta(handle))
 	defer func() { span.Finish(nil, nil, prepErr) }()
 	result, err := m.client.Exec(ctx, handle, RemoteExecRequest{
 		Shell:   true,
@@ -436,6 +453,14 @@ func (m *SessionBoundManager) DeleteSnapshot(ctx context.Context, snapshotID str
 		return errors.New("sandbox: remote provider does not support snapshots")
 	}
 	return snapshots.DeleteSnapshot(ctx, snapshotID)
+}
+
+// DeleteForkSnapshot removes a fork snapshot. sessionID is accepted so the
+// method matches SessionForkSandboxPort; deletion is by snapshot ID.
+func (m *SessionBoundManager) DeleteForkSnapshot(
+	ctx context.Context, _ /* sessionID */, snapshotID string,
+) error {
+	return m.DeleteSnapshot(ctx, snapshotID)
 }
 
 // ListSnapshots forwards provider snapshot listing for audit and later cleanup
@@ -678,6 +703,8 @@ func (m *SessionBoundManager) WriteSessionFile(
 // flags select the installer working-directory allowlist and bootstrap. Both
 // ordinary and install calls currently execute as root.
 type ShellExecOptions struct {
+	OnOutput func(stream string, chunk []byte)
+
 	WorkDir string
 	Timeout time.Duration
 	Env     map[string]string
@@ -692,6 +719,11 @@ type ShellExecOptions struct {
 	// AllowSkillsRoot separately permits a work_dir under the skills image root;
 	// it is not a filesystem boundary for commands running as root.
 	AsRoot bool
+	// SkipWorkspacePrep omits prepareSessionDirs. Desktop maintenance
+	// commands use absolute paths and do not write /workspace; the image
+	// already has that layout. Never set this from a model-authored tool
+	// such as shell_exec — agents still need the workspace contract.
+	SkipWorkspacePrep bool
 }
 
 // ExecShellCommand runs a shell one-liner inside the session's persistent
@@ -756,25 +788,32 @@ func (m *SessionBoundManager) ExecShellCommandWithOptions(
 	user := DefaultSandboxExecUser
 	if opts.AsRoot {
 		user = "root"
-		// Installation owns the skill directory and does not depend on a
-		// writable session workspace (which is cleaned before snapshotting).
-		if err := m.prepareSessionDirs(ctx, handle, user, workDir); err != nil {
-			return nil, err
-		}
-	} else {
-		if err := m.prepareSessionDirs(ctx, handle, user, SessionInputRoot, SessionOutputRoot, workDir); err != nil {
-			return nil, err
+	}
+	if !opts.SkipWorkspacePrep {
+		if opts.AsRoot {
+			// Installation owns the skill directory and does not depend on a
+			// writable session workspace (which is cleaned before snapshotting).
+			if err := m.prepareSessionDirs(ctx, handle, user, workDir); err != nil {
+				return nil, err
+			}
+		} else {
+			if err := m.prepareSessionDirs(
+				ctx, handle, user, SessionInputRoot, SessionOutputRoot, workDir,
+			); err != nil {
+				return nil, err
+			}
 		}
 	}
 
 	start := time.Now()
 	execResult, execErr := m.client.Exec(ctx, handle, RemoteExecRequest{
-		Command: command,
-		Shell:   true,
-		Env:     opts.Env,
-		WorkDir: workDir,
-		User:    user,
-		Timeout: timeout,
+		Command:  command,
+		OnOutput: commandOutputCallback(ctx, opts.OnOutput),
+		Shell:    true,
+		Env:      opts.Env,
+		WorkDir:  workDir,
+		User:     user,
+		Timeout:  timeout,
 	})
 	duration := time.Since(start)
 	return remoteExecuteResult(execResult, execErr, duration), nil
@@ -809,6 +848,141 @@ func (m *SessionBoundManager) SessionFileStore() SessionFileStore {
 	}
 	return m
 }
+
+// SessionTerminalManager advertises the interactive-terminal capability while
+// a real remote backend is active and the provider implements PTY streaming
+// (E2B and Cube do; Docker does not).
+func (m *SessionBoundManager) SessionTerminalManager() SessionTerminalManager {
+	if m == nil || m.remoteDisabled() {
+		return nil
+	}
+	if _, ok := TerminalManagerFrom(m.client); !ok {
+		return nil
+	}
+	return m
+}
+
+// OpenSessionTerminal opens a PTY on the sandbox currently bound to the
+// session. It is strictly lookup-only: with no live binding it returns
+// ErrNoLiveSessionSandbox instead of provisioning, because the terminal
+// entry point lacks the config-pin context that agent-driven creation
+// relies on. A bound sandbox that is not confirmed running returns
+// ErrSandboxPaused unless opts.AllowResume is set — Connect would wake a
+// paused instance. A backend that cannot stream PTYs (Docker) returns
+// ErrTerminalUnsupported, not "no sandbox".
+func (m *SessionBoundManager) OpenSessionTerminal(
+	ctx context.Context,
+	sessionID string,
+	opts RemoteTerminalOptions,
+) (RemoteTerminalSession, error) {
+	terminal, ok := TerminalManagerFrom(m.client)
+	if !ok {
+		return nil, ErrTerminalUnsupported
+	}
+	if !opts.AllowResume {
+		if err := m.RequireRunningSessionSandbox(ctx, sessionID); err != nil {
+			return nil, err
+		}
+	}
+	handle, found, err := m.lookupSessionHandle(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, ErrNoLiveSessionSandbox
+	}
+	return terminal.OpenTerminal(ctx, handle, opts)
+}
+
+var _ SessionTerminalProvider = (*SessionBoundManager)(nil)
+
+// SessionDesktopManager advertises the graphical-desktop capability while a
+// real remote backend is active, the provider can relay a data-plane
+// WebSocket (E2B and Cube do; Docker is not scheduled), and this config's
+// base image is a desktop template. DesktopEnabled is the stored bit that
+// survives skill snapshots replacing template_id with a UUID; without it the
+// tab would Exec ensure.sh on a CLI image and only then report unsupported.
+func (m *SessionBoundManager) SessionDesktopManager() SessionDesktopManager {
+	if m == nil || m.remoteDisabled() {
+		return nil
+	}
+	if m.config == nil || !m.config.DesktopEnabled {
+		return nil
+	}
+	if _, ok := DesktopManagerFrom(m.client); !ok {
+		return nil
+	}
+	return m
+}
+
+// RequireRunningSessionSandbox reports ErrNoLiveSessionSandbox or
+// ErrSandboxPaused without Connect. Lookup-only terminal and desktop opens
+// use it so opening a panel cannot resume (and re-bill) a paused instance.
+// Only a List-confirmed running sandbox is safe: paused/transitioning
+// Connect resumes, and a list miss with a stale binding is not "no sandbox".
+func (m *SessionBoundManager) RequireRunningSessionSandbox(
+	ctx context.Context,
+	sessionID string,
+) error {
+	if m == nil {
+		return ErrNoLiveSessionSandbox
+	}
+	state, bound, err := m.peekBoundSandboxState(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if !bound {
+		return ErrNoLiveSessionSandbox
+	}
+	if state != RemoteStateRunning {
+		return ErrSandboxPaused
+	}
+	return nil
+}
+
+// OpenSessionDesktop dials the desktop of the sandbox currently bound to the
+// session.
+//
+// Unlike OpenSessionTerminal there is no AllowResume branch: by the time this
+// runs, SandboxDesktopService has already driven the same
+// resolveSandboxForExecution path a chat turn uses, so the sandbox is live
+// and — critically — its inbound token is registered on THIS replica.
+// Reaching here with no binding means the sandbox went away in between,
+// which is an error, not a reason to provision.
+func (m *SessionBoundManager) OpenSessionDesktop(
+	ctx context.Context,
+	sessionID string,
+	opts RemoteDesktopOptions,
+) (*SessionDesktopConn, error) {
+	if m.SessionDesktopManager() == nil {
+		return nil, ErrDesktopUnsupported
+	}
+	desktop, ok := DesktopManagerFrom(m.client)
+	if !ok {
+		return nil, ErrDesktopUnsupported
+	}
+	handle, found, err := m.lookupSessionHandle(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, ErrNoLiveSessionSandbox
+	}
+	conn, err := desktop.DialDesktop(ctx, handle, opts)
+	if err != nil {
+		return nil, err
+	}
+	out := &SessionDesktopConn{Conn: conn, SandboxID: handle.ID()}
+	if refresher, ok := DesktopTTLRefresherFrom(m.client); ok {
+		bound := handle
+		out.StartTTLRefresh = func(ttlCtx context.Context) {
+			refresher.StartDesktopTTLRefresh(ttlCtx, bound)
+		}
+	}
+	return out, nil
+}
+
+var _ SessionDesktopProvider = (*SessionBoundManager)(nil)
 
 // Cleanup marks the manager closed. Session sandboxes are not force-deleted
 // here: their lifecycle is authoritative in the binding store and would
@@ -865,6 +1039,72 @@ func (m *SessionBoundManager) EndSessionTurn(ctx context.Context, sessionID stri
 	return leaser.EndTurn(context.WithoutCancel(ctx), key)
 }
 
+// HasActiveTurn reports whether an agent turn currently holds the session's
+// sandbox lease. A store without turn-lease support is treated as not busy
+// so fork can proceed.
+func (m *SessionBoundManager) HasActiveTurn(ctx context.Context, sessionID string) (bool, error) {
+	if m == nil {
+		return false, nil
+	}
+	leaser, ok := m.bindings.(sessionTurnLeaseStore)
+	if !ok {
+		return false, nil
+	}
+	key, err := m.sessionKey(ctx, sessionID)
+	if err != nil {
+		return false, err
+	}
+	active, _, err := leaser.TurnState(ctx, key)
+	return active, err
+}
+
+// CreateForkSnapshot snapshots the session's already-bound sandbox. It never
+// provisions: an unbound session or a backend without snapshots returns an
+// error so fork can degrade.
+func (m *SessionBoundManager) CreateForkSnapshot(
+	ctx context.Context, sessionID, name string,
+) (string, error) {
+	if err := m.requireRemoteBackend(); err != nil {
+		return "", err
+	}
+	snapshots, ok := SnapshotManagerFrom(m.client)
+	if !ok || !m.client.Capabilities().SupportsSnapshots {
+		return "", errors.New("sandbox: remote provider does not support snapshots")
+	}
+	sandboxID, bound := m.BoundSandboxID(ctx, sessionID)
+	if !bound || sandboxID == "" {
+		return "", errors.New("sandbox: session has no bound sandbox")
+	}
+	ref, err := createForkOrProviderSnapshot(ctx, m.client, snapshots, sandboxID, name)
+	if err != nil {
+		return "", err
+	}
+	id := strings.TrimSpace(ref.ID)
+	if id == "" {
+		return "", errors.New("sandbox: snapshot returned empty id")
+	}
+	return id, nil
+}
+
+type forkSnapshotCreator interface {
+	CreateForkSnapshot(ctx context.Context, sandboxID, name string) (RemoteSnapshotRef, error)
+}
+
+// createForkOrProviderSnapshot uses a fork-specific commit when the client
+// has one (Docker's weknora-fork/ namespace). Cube and E2B have no extra
+// namespace, so they keep using CreateSnapshot.
+func createForkOrProviderSnapshot(
+	ctx context.Context,
+	client RemoteSandboxClient,
+	snapshots RemoteSnapshotManager,
+	sandboxID, name string,
+) (RemoteSnapshotRef, error) {
+	if creator, ok := client.(forkSnapshotCreator); ok {
+		return creator.CreateForkSnapshot(ctx, sandboxID, name)
+	}
+	return snapshots.CreateSnapshot(ctx, sandboxID, name)
+}
+
 var _ SessionTurnHolder = (*SessionBoundManager)(nil)
 
 // resolveSession resolves (or lazily creates) the remote sandbox bound to
@@ -878,6 +1118,81 @@ func (m *SessionBoundManager) resolveSession(
 		return nil, err
 	}
 	return m.lifecycle.Resolve(ctx, key)
+}
+
+// peekBoundSandboxState reads provider listing for the bound sandbox without
+// Connect. The bool is "a binding exists for this provider", not "List
+// returned a row": a list miss still reports bound so lookup cannot pretend
+// the session has no sandbox. E2B/Cube Connect resumes a paused instance,
+// so the lookup-only terminal path must List first.
+func (m *SessionBoundManager) peekBoundSandboxState(
+	ctx context.Context,
+	sessionID string,
+) (RemoteSandboxState, bool, error) {
+	if m.remoteDisabled() || strings.TrimSpace(sessionID) == "" {
+		return "", false, nil
+	}
+	key, err := m.sessionKey(ctx, sessionID)
+	if err != nil {
+		return "", false, err
+	}
+	binding, err := m.bindings.Get(ctx, key)
+	if err != nil {
+		return "", false, fmt.Errorf("sandbox: read session binding: %w", err)
+	}
+	if binding == nil || binding.Provider != m.client.Provider() {
+		return "", false, nil
+	}
+	summaries, err := m.client.List(ctx, RemoteListFilter{
+		Metadata: map[string]string{
+			remoteMetadataTenantID:  strconv.FormatUint(key.TenantID, 10),
+			remoteMetadataSessionID: key.SessionID,
+		},
+		States: []RemoteSandboxState{
+			RemoteStateRunning,
+			RemoteStatePaused,
+			RemoteStateTransitioning,
+		},
+	})
+	if err != nil {
+		return "", false, fmt.Errorf("sandbox: list session sandbox: %w", err)
+	}
+	for _, summary := range summaries {
+		if summary.ID == binding.SandboxID {
+			return summary.State, true, nil
+		}
+	}
+	// Binding exists but the provider list did not return it (lag, metadata
+	// mismatch, or a state outside the filter). That is not "no sandbox":
+	// the UI should ask before Connect, which would resume a paused VM.
+	return RemoteStateUnknown, true, nil
+}
+
+// BoundSandboxID returns the ID of the sandbox currently bound to sessionID.
+// It never provisions and never Connects: a session with no live binding
+// reports ok=false, which callers treat as "nothing to check point".
+func (m *SessionBoundManager) BoundSandboxID(
+	ctx context.Context, sessionID string,
+) (string, bool) {
+	if m.remoteDisabled() || strings.TrimSpace(sessionID) == "" {
+		return "", false
+	}
+	key, err := m.sessionKey(ctx, sessionID)
+	if err != nil {
+		return "", false
+	}
+	binding, err := m.bindings.Get(ctx, key)
+	if err != nil {
+		return "", false
+	}
+	if binding == nil || binding.Provider != m.client.Provider() {
+		return "", false
+	}
+	sandboxID := strings.TrimSpace(binding.SandboxID)
+	if sandboxID == "" {
+		return "", false
+	}
+	return sandboxID, true
 }
 
 // lookupSessionHandle reads the authoritative binding and, when one exists
