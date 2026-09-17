@@ -236,7 +236,7 @@ See [`cli/README.md`](./cli/README.md) for install + 5-minute quickstart and
 ```bash
 git clone https://github.com/Tencent/WeKnora.git
 cd WeKnora
-cp .env.example .env   # Edit .env as needed, see comments in the file
+cp .env1.example .env1   # Edit .env1 as needed, see comments in the file
 docker compose pull     # Pull the latest images
 docker compose up -d    # Start core services
 ```
@@ -250,7 +250,7 @@ Once started, visit **http://localhost** to get started.
 If you already have WeKnora running and downloaded a newer release:
 
 ```bash
-# Set WEKNORA_VERSION in .env to the target release (e.g. 0.7.0), or keep latest
+# Set WEKNORA_VERSION in .env1 to the target release (e.g. 0.7.0), or keep latest
 docker compose pull     # Pull images matching WEKNORA_VERSION
 docker compose up -d    # Recreate containers with new images
 ```

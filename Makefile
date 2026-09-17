@@ -140,7 +140,7 @@ docker-build-frontend:
 docker-build-all: docker-build-app docker-build-docreader docker-build-frontend
 
 # Run Docker container (传统方式)
-# Touch .env if missing — docker-compose.yml's `env_file: [.env]` is required
+# Touch .env1 if missing — docker-compose.yml's `env_file: [.env1]` is required
 # for ${ENV} interpolation in builtin_models.yaml and would otherwise refuse
 # to parse on fresh clones. `start-all` handles this via check_env_file; this
 # direct path needs its own guard.
@@ -282,7 +282,7 @@ build-lite:
 	CGO_LDFLAGS="$$(if [ "$$(uname)" = 'Darwin' ]; then echo '-Wl,-no_warn_duplicate_libraries'; fi)" \
 	go build -tags "sqlite_fts5" -ldflags="-w -s $$LDFLAGS" -o $(BINARY_NAME)-lite $(MAIN_PATH)
 
-# Run Lite version with .env.lite defaults
+# Run Lite version with .env1.lite defaults
 run-lite: build-lite
 	@if [ ! -f .env.lite ]; then echo "Error: .env.lite not found"; exit 1; fi
 	@set -a && . ./.env.lite && set +a && ./$(BINARY_NAME)-lite

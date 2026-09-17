@@ -104,7 +104,7 @@ builtin_models:
 
 ```yaml
 env_file:
-  - path: .env
+  - path: .env1
     required: false
 ```
 

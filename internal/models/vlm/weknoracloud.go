@@ -121,7 +121,7 @@ func (v *WeKnoraCloudVLM) Predict(ctx context.Context, imgBytesList [][]byte, pr
 				Content: parts,
 			},
 		},
-		MaxTokens:   defaultMaxToks,
+		MaxTokens:   vlmMaxTokens(),
 		Temperature: float64(defaultTemp),
 		Stream:      false,
 	}

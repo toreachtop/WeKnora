@@ -5,7 +5,14 @@ import sys
 import traceback
 import uuid
 from concurrent import futures
+from pathlib import Path
 from typing import Optional
+
+# Ensure the repo root is on sys.path so that `from docreader.xxx` imports
+# work regardless of how this script is launched (PyCharm, uv run, etc.).
+_repo_root = Path(__file__).resolve().parent.parent
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
 
 import grpc
 from grpc_health.v1 import health_pb2_grpc

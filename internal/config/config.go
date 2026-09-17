@@ -591,10 +591,10 @@ func LoadConfig() (*Config, error) {
 
 	// Surface RBAC enforcement state at startup. air's hot-reload only
 	// rebuilds the binary on Go-source changes; it does NOT re-source
-	// .env, so a `WEKNORA_TENANT_ENABLE_RBAC=true` flip while the dev
+	// .env1, so a `WEKNORA_TENANT_ENABLE_RBAC=true` flip while the dev
 	// loop is already running silently has no effect until the dev
 	// script restarts. Logging this once at startup makes the
-	// "I edited .env but the gates still aren't firing" trap obvious
+	// "I edited .env1 but the gates still aren't firing" trap obvious
 	// from the first console line. Printf rather than logger because
 	// LoadConfig runs before the logger sink is wired in the dig graph.
 	rbacOn := cfg.Tenant.IsRBACEnforced()

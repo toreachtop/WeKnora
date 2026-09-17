@@ -24,9 +24,9 @@ python main.py --verbose
 export WEKNORA_BASE_URL="http://localhost:8080/api/v1"
 export WEKNORA_API_KEY="your_api_key_here"
 
-# 或者在 .env 文件中设置
-echo "WEKNORA_BASE_URL=http://localhost:8080/api/v1" > .env
-echo "WEKNORA_API_KEY=your_api_key_here" >> .env
+# 或者在 .env1 文件中设置
+echo "WEKNORA_BASE_URL=http://localhost:8080/api/v1" > .env1
+echo "WEKNORA_API_KEY=your_api_key_here" >> .env1
 ```
 
 ## MCP 工具使用示例

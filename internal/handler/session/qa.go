@@ -651,9 +651,13 @@ func (h *Handler) setupSSEStream(reqCtx *qaRequestContext, generateTitle bool) *
 		baseCtx = types.ApplyAgentMemoryPreference(baseCtx, reqCtx.customAgent.Config.MemoryEnabled)
 	}
 
-	// Create EventBus and cancellable context
+	// Create EventBus and cancellable context.
+	// Detach from the HTTP request context so that a client SSE disconnect
+	// does not cancel in-flight VLM/LLM calls (which would surface as
+	// "context canceled" on the provider side). Only the explicit stop
+	// handler and user-requested /stop endpoint can cancel asyncCtx.
 	eventBus := event.NewEventBus()
-	asyncCtx, cancel := context.WithCancel(logger.CloneContext(baseCtx))
+	asyncCtx, cancel := context.WithCancel(context.WithoutCancel(logger.CloneContext(baseCtx)))
 
 	streamCtx := &sseStreamContext{
 		eventBus:         eventBus,

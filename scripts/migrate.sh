@@ -5,7 +5,7 @@ set -e
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
 
-# Load .env file if it exists (for development mode)
+# Load .env1 file if it exists (for development mode)
 if [ -f "$PROJECT_ROOT/.env" ]; then
     echo "Loading .env file from $PROJECT_ROOT/.env"
     set -a
@@ -31,7 +31,7 @@ if ! command -v migrate &> /dev/null; then
 fi
 
 # Construct the database URL
-# If DB_URL is already set in .env, use it but ensure sslmode=disable is set
+# If DB_URL is already set in .env1, use it but ensure sslmode=disable is set
 # Otherwise, construct it from individual components
 if [ -n "$DB_URL" ]; then
     # If DB_URL already exists, ensure sslmode=disable is set (unless sslmode is already specified)

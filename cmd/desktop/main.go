@@ -160,7 +160,7 @@ func main() {
 		}
 	}
 
-	// Load .env explicitly for the desktop app so DB_DRIVER gets loaded
+	// Load .env1 explicitly for the desktop app so DB_DRIVER gets loaded
 	_ = godotenv.Load()
 	configureDesktopStorage(execPath)
 	logger.ConfigureFromEnv()

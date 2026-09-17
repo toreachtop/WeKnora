@@ -38,7 +38,7 @@ docreader:
   - 可以在 `.env` 文件中配置 `MINIO_PORT` 来自定义端口
 - **配置示例**:
   ```bash
-  # .env 文件
+  # .env1 文件
   MINIO_PORT=9000
   ```
   或直接在 docker-compose.yml 中修改：
@@ -53,7 +53,7 @@ docreader:
 - **用途**: MinerU 是一个高级文档解析服务，支持更复杂的文档结构识别和处理。配置此变量后，DocReader 可以调用 MinerU 进行文档解析
 - **配置示例**:
   ```bash
-  # .env 文件
+  # .env1 文件
   MINERU_ENDPOINT=http://mineru-service:8080
   ```
 
@@ -64,7 +64,7 @@ docreader:
 - **用途**: 限制 gRPC 服务接收的文件大小，防止过大的文件导致服务崩溃或性能问题
 - **配置示例**:
   ```bash
-  # .env 文件
+  # .env1 文件
   MAX_FILE_SIZE_MB=100  # 允许最大 100MB 的文件
   ```
 

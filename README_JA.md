@@ -206,7 +206,7 @@ Feishu、GitLab、Tencent IMA、Notion、Yuqueなどの外部プラットフォ�
 ```bash
 git clone https://github.com/Tencent/WeKnora.git
 cd WeKnora
-cp .env.example .env   # 必要に応じて .env を編集（詳細はファイル内のコメント参照）
+cp .env1.example .env1   # 必要に応じて .env1 を編集（詳細はファイル内のコメント参照）
 docker compose pull     # 最新イメージを取得
 docker compose up -d    # コアサービスを起動
 ```
@@ -220,7 +220,7 @@ docker compose up -d    # コアサービスを起動
 既存のデプロイがあり、新しい release をダウンロードした場合：
 
 ```bash
-# .env の WEKNORA_VERSION を対象バージョン（例: 0.7.0）に設定、または latest のまま
+# .env1 の WEKNORA_VERSION を対象バージョン（例: 0.7.0）に設定、または latest のまま
 docker compose pull     # WEKNORA_VERSION に一致するイメージを取得
 docker compose up -d    # 新しいイメージでコンテナを再作成
 ```

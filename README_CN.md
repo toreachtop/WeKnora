@@ -213,7 +213,7 @@
 ```bash
 git clone https://github.com/Tencent/WeKnora.git
 cd WeKnora
-cp .env.example .env   # 按需编辑 .env，详见文件内注释
+cp .env1.example .env1   # 按需编辑 .env1，详见文件内注释
 docker compose pull     # 拉取最新镜像
 docker compose up -d    # 启动核心服务
 ```
@@ -227,7 +227,7 @@ docker compose up -d    # 启动核心服务
 若已有部署并下载了更新的 release：
 
 ```bash
-# 在 .env 中将 WEKNORA_VERSION 设为目标版本（如 0.7.0），或保持 latest
+# 在 .env1 中将 WEKNORA_VERSION 设为目标版本（如 0.7.0），或保持 latest
 docker compose pull     # 拉取与 WEKNORA_VERSION 匹配的镜像
 docker compose up -d    # 用新镜像重建容器
 ```

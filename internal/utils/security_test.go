@@ -221,7 +221,7 @@ func TestValidateURLForSSRF_IPv6Whitelist(t *testing.T) {
 // TestSSRFWhitelistExtraMerge verifies that SSRF_WHITELIST_EXTRA is merged
 // into the effective whitelist alongside SSRF_WHITELIST, so deployment-managed
 // defaults (e.g. docker-compose injected sidecar host names) survive when an
-// operator overrides SSRF_WHITELIST in their .env.
+// operator overrides SSRF_WHITELIST in their .env1.
 func TestSSRFWhitelistExtraMerge(t *testing.T) {
 	cases := []struct {
 		name  string

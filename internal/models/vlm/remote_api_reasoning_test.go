@@ -137,6 +137,8 @@ var testPNG = []byte("\x89PNG\r\n\x1a\n" + strings.Repeat("\x00", 16))
 // The request was rejected client-side by go-openai's reasoning validator, so
 // it never reached the server and no image chunk was ever created.
 func TestRemoteAPIVLMSendsMaxCompletionTokensForReasoningModel(t *testing.T) {
+	// Pin the env var so a host/CI value can't change the expected token budget.
+	t.Setenv("VLM_MAX_TOKENS", "")
 	withVLMSSRFWhitelist(t, "127.0.0.1")
 
 	var lastRequest map[string]interface{}
@@ -178,6 +180,8 @@ func TestRemoteAPIVLMSendsMaxCompletionTokensForReasoningModel(t *testing.T) {
 // TestRemoteAPIVLMKeepsMaxTokensForNonReasoningModel guards against the fix
 // regressing ordinary vision models, which still expect max_tokens.
 func TestRemoteAPIVLMKeepsMaxTokensForNonReasoningModel(t *testing.T) {
+	// Pin the env var so a host/CI value can't change the expected token budget.
+	t.Setenv("VLM_MAX_TOKENS", "")
 	withVLMSSRFWhitelist(t, "127.0.0.1")
 
 	var lastRequest map[string]interface{}
@@ -219,6 +223,8 @@ func TestRemoteAPIVLMKeepsMaxTokensForNonReasoningModel(t *testing.T) {
 // "no_extracted_content" bucket, where issue #2537 notes the failure is
 // indistinguishable from an image that genuinely has no text.
 func TestRemoteAPIVLMReportsTruncatedCompletion(t *testing.T) {
+	// Pin the env var so a host/CI value can't change the reported budget.
+	t.Setenv("VLM_MAX_TOKENS", "")
 	withVLMSSRFWhitelist(t, "127.0.0.1")
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -289,5 +295,32 @@ func TestRemoteAPIVLMUnshapedReasoningRequestIsRejected(t *testing.T) {
 	_, err = v.client.CreateChatCompletion(t.Context(), tempOnly)
 	if !errors.Is(err, openai.ErrReasoningModelLimitationsOther) {
 		t.Errorf("temperature error = %v, want ErrReasoningModelLimitationsOther", err)
+	}
+}
+
+// TestVLMMaxTokens verifies the VLM_MAX_TOKENS env var drives the VLM output
+// budget, falling back to defaultMaxToks (5000) when unset or invalid. This is
+// the knob operators set in the Docker image / runtime to lift the cap for long
+// documents without recompiling.
+func TestVLMMaxTokens(t *testing.T) {
+	t.Setenv("VLM_MAX_TOKENS", "")
+	if got := vlmMaxTokens(); got != defaultMaxToks {
+		t.Fatalf("unset env: vlmMaxTokens() = %d, want default %d", got, defaultMaxToks)
+	}
+
+	t.Setenv("VLM_MAX_TOKENS", "16384")
+	if got := vlmMaxTokens(); got != 16384 {
+		t.Fatalf("vlmMaxTokens() = %d, want 16384", got)
+	}
+
+	// Invalid / non-positive values keep the default instead of propagating a
+	// broken budget to the model request.
+	t.Setenv("VLM_MAX_TOKENS", "0")
+	if got := vlmMaxTokens(); got != defaultMaxToks {
+		t.Fatalf("VLM_MAX_TOKENS=0: vlmMaxTokens() = %d, want default %d", got, defaultMaxToks)
+	}
+	t.Setenv("VLM_MAX_TOKENS", "abc")
+	if got := vlmMaxTokens(); got != defaultMaxToks {
+		t.Fatalf("VLM_MAX_TOKENS=abc: vlmMaxTokens() = %d, want default %d", got, defaultMaxToks)
 	}
 }

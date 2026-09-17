@@ -4862,7 +4862,7 @@ export default {
     },
     address: {
       label: 'Service URL',
-      desc: 'The API address of the local Ollama service, auto-detected by the system. To modify, set it in the .env file.',
+      desc: 'The API address of the local Ollama service, auto-detected by the system. To modify, set it in the .env1 file.',
       placeholder: 'http://localhost:11434',
       failed: 'Connection failed. Please check whether Ollama is running or the URL is correct'
     },

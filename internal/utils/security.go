@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"html"
 	"log"
@@ -709,12 +710,43 @@ func stripRedirectSensitiveHeaders(req *http.Request) {
 // by SSRFSafeDialContext. The transport carries no per-request timeout and no
 // redirect policy — those live on the *http.Client — so a single transport can
 // be shared across many clients to pool keep-alive connections globally.
+//
+// TLS posture is controlled by LLMTLSClientConfig: certificates are verified
+// by default (TLS 1.2 floor); operators can opt out via
+// WEKNORA_LLM_INSECURE_SKIP_VERIFY=true (mirrors the Java LLM client's
+// ignoreSsl). This covers every outbound model client built on this transport,
+// including the multimodal (VLM) requests issued during document parsing.
 func NewSSRFSafeTransport(config SSRFSafeHTTPClientConfig) *http.Transport {
 	return &http.Transport{
 		DisableKeepAlives:  config.DisableKeepAlives,
 		DisableCompression: config.DisableCompression,
+		TLSClientConfig:    LLMTLSClientConfig(),
 		// Dial with SSRF protection - validates resolved IPs before connecting
 		DialContext: SSRFSafeDialContext,
+	}
+}
+
+// LLMTLSClientConfig returns the TLS configuration used by all outbound model
+// (LLM / multimodal VLM / embedding / rerank / ASR) requests. Certificate
+// verification is enabled by default with a TLS 1.2 floor. Setting
+// WEKNORA_LLM_INSECURE_SKIP_VERIFY=true disables verification so clients can
+// reach endpoints using self-signed or legacy CN-only certificates; this
+// mirrors the Java LLM client's ignoreSsl option and must only be used for
+// local development/testing (e.g. a Docker deployment against an internal
+// gateway), never in production.
+func LLMTLSClientConfig() *tls.Config {
+	insecure := strings.EqualFold(strings.TrimSpace(os.Getenv("WEKNORA_LLM_INSECURE_SKIP_VERIFY")), "true")
+	if insecure {
+		log.Printf("[WARN] WEKNORA_LLM_INSECURE_SKIP_VERIFY=true: TLS certificate verification is disabled for outbound LLM requests. This must only be used for local development or testing with self-signed or legacy certificates; do not disable SSL verification in production as it exposes connections to man-in-the-middle attacks.")
+		return &tls.Config{
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: true, //nolint:gosec — operator opt-in via env var (mirrors Java ignoreSsl)
+		}
+	}
+	return &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		// InsecureSkipVerify is deliberately false: outbound LLM requests
+		// must always validate the server certificate.
 	}
 }
 
@@ -938,7 +970,7 @@ func loadSSRFWhitelist() *ssrfWhitelistConfig {
 		// SSRF_WHITELIST_EXTRA is merged in addition to SSRF_WHITELIST so that
 		// deployment-managed defaults (e.g. docker-compose injected sidecar host
 		// names like "searxng") aren't accidentally clobbered when an operator
-		// overrides SSRF_WHITELIST in their .env.
+		// overrides SSRF_WHITELIST in their .env1.
 		extra := os.Getenv("SSRF_WHITELIST_EXTRA")
 		ssrfWhitelist = parseSSRFWhitelistRaw(mergeSSRFWhitelistRaws(raw, extra))
 	})

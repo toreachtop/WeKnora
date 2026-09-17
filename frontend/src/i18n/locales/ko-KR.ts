@@ -1978,7 +1978,7 @@ export default {
     },
     address: {
       label: '서비스 주소',
-      desc: '로컬 Ollama 서비스의 API 주소, 시스템에서 자동으로 감지됩니다. 수정이 필요하면 .env 설정 파일에서 설정해주세요',
+      desc: '로컬 Ollama 서비스의 API 주소, 시스템에서 자동으로 감지됩니다. 수정이 필요하면 .env1 설정 파일에서 설정해주세요',
       placeholder: 'http://localhost:11434',
       failed: '연결 실패, Ollama가 실행 중인지 또는 서비스 주소가 올바른지 확인해주세요'
     },

@@ -25,7 +25,7 @@ services:
       - APP_PORT=${APP_BACKEND_PORT:-8080}
       - APP_SCHEME=${APP_SCHEME:-http}
     # NOTE: If using a remote App backend, comment out or remove the depends_on
-    # block below and set APP_HOST/APP_BACKEND_PORT/APP_SCHEME in your .env file.
+    # block below and set APP_HOST/APP_BACKEND_PORT/APP_SCHEME in your .env1 file.
     depends_on:
       app:
         condition: service_healthy
@@ -62,18 +62,18 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
-    # Source .env so deployment-specific variables (e.g. those referenced by
+    # Source .env1 so deployment-specific variables (e.g. those referenced by
     # config/builtin_models.yaml via ${ENV}, or any future feature) reach the
     # app container without having to be enumerated under `environment:`.
     #
     # NOTE: the array form below is used instead of the map form
-    # (env_file: - path: .env, required: false) because the map syntax
+    # (env_file: - path: .env1, required: false) because the map syntax
     # requires Docker Compose v2.24+ (Jan 2024) and would break parsing on
-    # older deploys. The trade-off is that Compose errors out if .env is
+    # older deploys. The trade-off is that Compose errors out if .env1 is
     # absent — see scripts/start_all.sh for the pre-flight touch that keeps
     # fresh clones working.
     env_file:
-      - .env
+      - .env1
     environment:
       # ========== 日志 ==========
       # 日志级别，默认debug
@@ -279,7 +279,7 @@ services:
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       - REDIS_DB=${REDIS_DB:-}
       - REDIS_PREFIX=${REDIS_PREFIX:-}
-      # Redis TLS（托管 Redis 加密传输；REDIS_USE_TLS=true 时生效，详见 .env.example）
+      # Redis TLS（托管 Redis 加密传输；REDIS_USE_TLS=true 时生效，详见 .env1.example）
       - REDIS_TLS_SERVER_NAME=${REDIS_TLS_SERVER_NAME:-}
       - REDIS_TLS_INSECURE_SKIP_VERIFY=${REDIS_TLS_INSECURE_SKIP_VERIFY:-}
       # Redis 频道命名空间后缀（多部署共享同一 Redis 时隔离用）
@@ -334,7 +334,7 @@ services:
       - WEKNORA_AGENT_TOOL_APPROVAL_TIMEOUT=${WEKNORA_AGENT_TOOL_APPROVAL_TIMEOUT:-}
       # MCP 工具人工审批失败时是否放行（true 放行 / 默认 fail-close 拒绝）
       - WEKNORA_AGENT_TOOL_APPROVAL_FAIL_OPEN=${WEKNORA_AGENT_TOOL_APPROVAL_FAIL_OPEN:-}
-      # Tenant / RBAC（详见 docs/RBAC说明.md 与 .env.example 注释）
+      # Tenant / RBAC（详见 docs/RBAC说明.md 与 .env1.example 注释）
       # - WEKNORA_TENANT_ENABLE_RBAC: 是否启用空间角色强制鉴权（true / false），默认 true
       # - WEKNORA_TENANT_MAX_OWNED_PER_USER: 单个非超管自助创建空间的上限
       #   >0 强制限额；=0 走 handler 默认；<0 关闭限额（不建议共享部署使用）
@@ -352,7 +352,7 @@ services:
       - WEKNORA_MODEL_MAX_CONCURRENCY=${WEKNORA_MODEL_MAX_CONCURRENCY:-32}
       - APK_MIRROR_ARG=${APK_MIRROR_ARG:-}
       - WEKNORA_BOOTSTRAP_SYSTEM_ADMIN_EMAIL=${WEKNORA_BOOTSTRAP_SYSTEM_ADMIN_EMAIL:-}
-      # ========== OIDC 认证（可选，OIDC_AUTH_ENABLE=true 启用，详见 .env.example）==========
+      # ========== OIDC 认证（可选，OIDC_AUTH_ENABLE=true 启用，详见 .env1.example）==========
       - OIDC_AUTH_ENABLE=${OIDC_AUTH_ENABLE:-false}
       - OIDC_AUTH_ISSUER_URL=${OIDC_AUTH_ISSUER_URL:-}
       - OIDC_AUTH_DISCOVERY_URL=${OIDC_AUTH_DISCOVERY_URL:-}
@@ -579,7 +579,7 @@ services:
       - SEARXNG_BASE_URL=http://localhost:${SEARXNG_PORT:-8888}/
       - INSTANCE_NAME=weknora-searxng
       # Default value lets `docker compose --profile searxng up` work zero-config.
-      # Override via .env (e.g. `openssl rand -hex 32`) before exposing the
+      # Override via .env1 (e.g. `openssl rand -hex 32`) before exposing the
       # instance beyond the default 127.0.0.1 bind, since secret_key signs
       # image-proxy URLs and a shared default would be guessable by anyone.
       - SEARXNG_SECRET=${SEARXNG_SECRET:-weknora-default-searxng-secret-rotate-before-exposing-publicly}
@@ -788,7 +788,7 @@ services:
   #   docker compose --profile langfuse up -d
   # 启用后：
   #   1. Langfuse UI: http://localhost:3000 （首次访问注册管理员并在 Settings → API Keys 生成 key）
-  #   2. 在 .env 里把 LANGFUSE_HOST 改成 http://langfuse-web:3000（容器间通信）
+  #   2. 在 .env1 里把 LANGFUSE_HOST 改成 http://langfuse-web:3000（容器间通信）
   #      并填入刚生成的 LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY
   #   3. 重启 app 容器：docker compose up -d app
   # 相关默认密码已写成占位符，生产部署务必用 openssl rand 重新生成！

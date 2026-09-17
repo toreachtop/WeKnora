@@ -38,6 +38,20 @@ func vlmHTTPTimeout() time.Duration {
 	return defaultTimeout
 }
 
+// vlmMaxTokens returns the max output tokens for VLM requests, read from the
+// VLM_MAX_TOKENS env var when set (and positive), falling back to defaultMaxToks
+// (5000) otherwise. Set it in the Docker image / runtime environment to lift or
+// lower the cap for long documents without recompiling; a missing or invalid
+// value keeps the historical default of 5000.
+func vlmMaxTokens() int {
+	if v := strings.TrimSpace(os.Getenv("VLM_MAX_TOKENS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultMaxToks
+}
+
 // RemoteAPIVLM implements VLM via an OpenAI-compatible chat completions API.
 type RemoteAPIVLM struct {
 	modelName   string
@@ -132,6 +146,8 @@ func (v *RemoteAPIVLM) Predict(ctx context.Context, imgBytesList [][]byte, promp
 		}
 	}
 
+	maxTokens := vlmMaxTokens()
+
 	req := openai.ChatCompletionRequest{
 		Model: v.modelName,
 		Messages: []openai.ChatCompletionMessage{
@@ -140,7 +156,7 @@ func (v *RemoteAPIVLM) Predict(ctx context.Context, imgBytesList [][]byte, promp
 				MultiContent: parts,
 			},
 		},
-		MaxTokens:   defaultMaxToks,
+		MaxTokens:   maxTokens,
 		Temperature: v.temperature,
 	}
 	shapeReasoningVLMRequest(&req)
@@ -169,7 +185,7 @@ func (v *RemoteAPIVLM) Predict(ctx context.Context, imgBytesList [][]byte, promp
 		// "no_extracted_content" and look identical to an image with no text.
 		return "", fmt.Errorf(
 			"OpenAI VLM returned no content: completion truncated at %d tokens (finish_reason=length)",
-			defaultMaxToks,
+			maxTokens,
 		)
 	}
 	logger.Infof(ctx, "[VLM] OpenAI response received, len=%d", len(content))

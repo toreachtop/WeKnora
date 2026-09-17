@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # firstboot.sh - 由 weknora-firstboot.service 在新实例首次开机时自动执行。
-# 任务: 生成随机密钥写入 .env -> 启动容器 -> 输出凭证 -> 标记完成 + 自禁用。
+# 任务: 生成随机密钥写入 .env1 -> 启动容器 -> 输出凭证 -> 标记完成 + 自禁用。
 #
 # 幂等性策略:
 #   1) 一上来先写 ${MARKER} 标记 "已生成过密钥",
 #      之后即便 docker compose 失败导致脚本中断, 重启后由 unit 的
-#      ConditionPathExists=!${MARKER} 拦住, 不会再生成新密钥覆盖 .env。
+#      ConditionPathExists=!${MARKER} 拦住, 不会再生成新密钥覆盖 .env1。
 #      (旧密钥已经写进 postgres 数据卷, 二次生成会导致数据库永久无法登录)
 #   2) 失败时 unit 标记 failed, 用户可手动 docker compose up -d 恢复;
 #      凭证仍可在 ${ENV_FILE} 中查到。
@@ -29,8 +29,8 @@ if [[ -f "${MARKER}" ]]; then
   exit 0
 fi
 
-# cleanup.sh 不再保留 .env, 这里从 .env.example 拷贝模板再做替换。
-# 这样保证 firstboot 之前不会有任何含明文默认密码的 .env 让 weknora.service
+# cleanup.sh 不再保留 .env1, 这里从 .env1.example 拷贝模板再做替换。
+# 这样保证 firstboot 之前不会有任何含明文默认密码的 .env1 让 weknora.service
 # 抢先把 postgres 数据卷用错的密码初始化掉。
 if [[ ! -f "${ENV_FILE}" ]]; then
   if [[ -f "${ENV_TEMPLATE}" ]]; then
@@ -77,7 +77,7 @@ replace JWT_SECRET      "${JWT}"
 replace SYSTEM_AES_KEY  "${SYS_AES}"
 replace GIN_MODE        "release"
 
-# 把 prepare.sh 阶段记录在 .cloud-image-meta 里的 WEKNORA_REF 还原为 .env 的
+# 把 prepare.sh 阶段记录在 .cloud-image-meta 里的 WEKNORA_REF 还原为 .env1 的
 # WEKNORA_VERSION, 否则 docker compose 会落回 :latest 默认值, 导致镜像版本
 # 与 prepare 时拉取的版本不一致。
 META_FILE="${WEKNORA_DIR}/.cloud-image-meta"
@@ -89,8 +89,8 @@ if [[ -f "${META_FILE}" ]]; then
   fi
 fi
 
-# 关键: .env 改完立刻写 marker。
-# 这之后即便 docker compose up 失败, 重启也不会再次重写 .env,
+# 关键: .env1 改完立刻写 marker。
+# 这之后即便 docker compose up 失败, 重启也不会再次重写 .env1,
 # 防止与 postgres 已经持久化的密码不一致。
 umask 077
 touch "${MARKER}"

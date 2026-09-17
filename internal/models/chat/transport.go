@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"crypto/tls"
 	"net/http"
 	"os"
 	"strconv"
@@ -44,19 +45,42 @@ func withLLMTimeout(ctx context.Context, d time.Duration) (context.Context, cont
 	return context.WithTimeout(ctx, d)
 }
 
-// rawHTTPClient is a shared HTTP client for raw HTTP LLM calls with connection-level timeouts.
-// Per-request timeout is enforced via context deadline (see defaultChatTimeout / defaultStreamTimeout)
-// rather than http.Client.Timeout, so streaming calls are not prematurely terminated.
-// Uses SSRFSafeDialContext to prevent DNS rebinding attacks at the connection layer.
-var rawHTTPTransport = &http.Transport{
-	Proxy:               http.ProxyFromEnvironment,
-	DialContext:         secutils.SSRFSafeDialContext,
-	TLSHandshakeTimeout: 10 * time.Second,
-	IdleConnTimeout:     90 * time.Second,
-	MaxIdleConnsPerHost: 5,
-}
+// rawHTTPClient is a shared HTTP client for outbound LLM calls with
+// connection-level timeouts. Per-request timeout is enforced via context
+// deadline (see defaultChatTimeout / defaultStreamTimeout) rather than
+// http.Client.Timeout, so streaming calls are not prematurely terminated.
+// Uses SSRFSafeDialContext to prevent DNS rebinding attacks at the connection
+// layer.
+var rawHTTPTransport = newChatHTTPTransport()
 
 var rawHTTPClient = secutils.NewSSRFSafeHTTPClientWithTransport(
 	secutils.SSRFSafeHTTPClientConfig{Timeout: 0, MaxRedirects: 10},
 	rawHTTPTransport,
 )
+
+// newChatHTTPTransport builds the transport for outbound LLM calls. TLS
+// certificate verification is enabled by default; it is disabled only when
+// WEKNORA_LLM_INSECURE_SKIP_VERIFY=true, mirroring the Java LLM client's
+// ignoreSsl option.
+func newChatHTTPTransport() *http.Transport {
+	return &http.Transport{
+		Proxy:               http.ProxyFromEnvironment,
+		DialContext:         secutils.SSRFSafeDialContext,
+		TLSClientConfig:     newChatTLSConfig(),
+		TLSHandshakeTimeout: 10 * time.Second,
+		IdleConnTimeout:     90 * time.Second,
+		MaxIdleConnsPerHost: 5,
+	}
+}
+
+// newChatTLSConfig mirrors the Java LLM client's ignoreSsl flow: a TLS 1.2
+// floor plus an opt-in certificate verification bypass for self-signed or
+// legacy (CN-only) certificates, toggled via the WEKNORA_LLM_INSECURE_SKIP_VERIFY
+// environment variable. Shared with the multimodal VLM transport so every
+// outbound model request honors the same switch. Disabling verification must
+// only be used for local development or testing (e.g. a Docker deployment
+// against an internal gateway) and never in production, as it exposes
+// connections to man-in-the-middle attacks.
+func newChatTLSConfig() *tls.Config {
+	return secutils.LLMTLSClientConfig()
+}

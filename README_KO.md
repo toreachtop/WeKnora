@@ -216,7 +216,7 @@ Feishu, GitLab, Tencent IMA, Notion, Yuque 등 외부 플랫폼에서 지식 자
 ```bash
 git clone https://github.com/Tencent/WeKnora.git
 cd WeKnora
-cp .env.example .env   # 필요에 따라 .env 편집 (파일 내 주석 참고)
+cp .env1.example .env1   # 필요에 따라 .env1 편집 (파일 내 주석 참고)
 docker compose pull     # 최신 이미지 가져오기
 docker compose up -d    # 코어 서비스 시작
 ```

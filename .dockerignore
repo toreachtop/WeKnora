@@ -53,7 +53,7 @@ data/*.db-shm
 test/data/mswag.txt
 
 # 敏感文件
-.env
+.env1
 .env.lite
 *.pem
 *.key

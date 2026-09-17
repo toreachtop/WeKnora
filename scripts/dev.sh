@@ -85,7 +85,7 @@ show_help() {
     echo "  $0 frontend                 # 在另一个终端启动前端"
 }
 
-# 加载 .env 与可选的 .env.local（后者覆盖前者）
+# 加载 .env1 与可选的 .env1.local（后者覆盖前者）
 # 读取时去掉行尾 \r，兼容 Windows 风格(CRLF)换行符，
 # 否则 bash source 会把残留的 \r 当成命令导致 "...: $'\r': command not found"。
 # 注意：不能用 source <(sed ...)——macOS 自带 Bash 3.2 对 process substitution
@@ -104,14 +104,14 @@ _source_env_file() {
 
 load_env_files() {
     if [ -f ".env" ]; then
-        _source_env_file .env || return 1
+        _source_env_file .env1 || return 1
     else
         return 1
     fi
 
     if [ -f ".env.local" ]; then
         log_info "加载 .env.local 覆盖配置..."
-        _source_env_file .env.local || return 1
+        _source_env_file .env1.local || return 1
     fi
     return 0
 }
@@ -136,7 +136,7 @@ check_docker() {
     return 0
 }
 
-# 检查 .env 是否启用了 hybrid 模式（用于 --odl-hybrid 启动后重建 docreader）
+# 检查 .env1 是否启用了 hybrid 模式（用于 --odl-hybrid 启动后重建 docreader）
 _should_enable_odl_hybrid_from_env() {
     local hybrid="${DOCREADER_ODL_HYBRID:-off}"
     hybrid=$(printf '%s' "$hybrid" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
@@ -187,7 +187,7 @@ start_services() {
 
     cd "$PROJECT_ROOT"
     
-    # 检查 .env 文件
+    # 检查 .env1 文件
     if [ ! -f ".env" ]; then
         log_error ".env 文件不存在，请先创建"
         return 1
@@ -262,7 +262,7 @@ start_services() {
         log_info "构建/更新 odl-hybrid 镜像..."
         "$DOCKER_COMPOSE_BIN" $DOCKER_COMPOSE_SUBCMD -f docker-compose.dev.yml $PROFILES up -d --build odl-hybrid
         _wait_odl_hybrid_ready || true
-        # docreader 需读取 DOCREADER_ODL_HYBRID；若刚改 .env，强制重建以注入环境变量
+        # docreader 需读取 DOCREADER_ODL_HYBRID；若刚改 .env1，强制重建以注入环境变量
         if _should_enable_odl_hybrid_from_env; then
             log_info "重建 docreader 以应用 DOCREADER_ODL_HYBRID=${DOCREADER_ODL_HYBRID} ..."
             "$DOCKER_COMPOSE_BIN" $DOCKER_COMPOSE_SUBCMD -f docker-compose.dev.yml up -d --force-recreate docreader
@@ -465,7 +465,7 @@ start_app() {
     fi
     
     # 本地 docker-compose.dev 模式：把容器服务名映射到宿主机回环地址
-    # 远程开发模式（DEV_REMOTE_HOST 或 .env.local 已设地址）则保留 .env/.env.local 中的值
+    # 远程开发模式（DEV_REMOTE_HOST 或 .env1.local 已设地址）则保留 .env1/.env1.local 中的值
     if [ -n "${DEV_REMOTE_HOST:-}" ]; then
         log_info "远程开发模式: 基础设施 → ${DEV_REMOTE_HOST}"
         export DB_HOST="${DB_HOST:-$DEV_REMOTE_HOST}"
@@ -493,7 +493,7 @@ start_app() {
         return 1
     fi
 
-    # .env.example uses /data/files for the Docker app container, where a
+    # .env1.example uses /data/files for the Docker app container, where a
     # volume is mounted at that path. When the backend runs directly on the
     # host via dev-app, /data is often read-only or missing, so use a repo-local
     # writable directory unless the developer explicitly configured another

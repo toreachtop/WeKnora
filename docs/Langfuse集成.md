@@ -71,8 +71,8 @@ docker compose --profile langfuse up -d
 # 2. 浏览器打开 http://localhost:3000 注册管理员账号
 #    然后在 Project Settings → API Keys 生成 Public/Secret Key
 
-# 3. 把 key 填回 .env 并把 HOST 改成容器内部地址
-cat >> .env <<'EOF'
+# 3. 把 key 填回 .env1 并把 HOST 改成容器内部地址
+cat >> .env1 <<'EOF'
 LANGFUSE_HOST=http://langfuse-web:3000
 LANGFUSE_PUBLIC_KEY=pk-lf-xxxxxxxx
 LANGFUSE_SECRET_KEY=sk-lf-xxxxxxxx

@@ -355,7 +355,7 @@ builtin_models:
     type: KnowledgeQA              # KnowledgeQA | Embedding | Rerank | VLLM | ASR
     source: remote                 # remote（默认）| local
     is_default: true               # 是否设为该类型默认模型
-    name: ${LLM_MODEL_NAME}        # 字符串字段均支持 ${ENV} 引用（.env 经 env_file 注入容器）
+    name: ${LLM_MODEL_NAME}        # 字符串字段均支持 ${ENV} 引用（.env1 经 env_file 注入容器）
     parameters:
       base_url: ${LLM_BASE_URL}
       api_key: ${LLM_API_KEY}

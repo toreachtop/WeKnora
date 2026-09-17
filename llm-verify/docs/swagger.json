@@ -1,0 +1,100 @@
+{
+    "consumes": [
+        "application/json"
+    ],
+    "produces": [
+        "application/json"
+    ],
+    "swagger": "2.0",
+    "info": {
+        "description": "内网快速验证外呼 LLM 的 HTTPS 证书处理（WEKNORA_LLM_INSECURE_SKIP_VERIFY）。",
+        "title": "LLM Verify Demo API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "basePath": "/api/v1",
+    "paths": {
+        "/chat": {
+            "post": {
+                "description": "使用请求地址、模型名称、apikey、query 调用 OpenAI 兼容 /chat/completions。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "llm"
+                ],
+                "summary": "外呼 LLM 测试",
+                "parameters": [
+                    {
+                        "description": "外呼 LLM 参数",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/main.ChatRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "上游模型返回（透传）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "参数错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "502": {
+                        "description": "上游调用失败",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "main.ChatRequest": {
+            "type": "object",
+            "required": [
+                "api_key",
+                "base_url",
+                "model",
+                "query"
+            ],
+            "properties": {
+                "api_key": {
+                    "description": "APIKey 鉴权密钥",
+                    "type": "string",
+                    "example": "sk-xxx"
+                },
+                "base_url": {
+                    "description": "BaseURL 上游 LLM 兼容接口的根地址，例如 https://openapi.ai.sdd/v1",
+                    "type": "string",
+                    "example": "https://openapi.ai.sdd/v1"
+                },
+                "model": {
+                    "description": "Model 模型名称",
+                    "type": "string",
+                    "example": "deepseek-chat"
+                },
+                "query": {
+                    "description": "Query 发送给模型的内容",
+                    "type": "string",
+                    "example": "你好"
+                }
+            }
+        }
+    }
+}

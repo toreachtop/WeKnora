@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"strings"
@@ -95,5 +96,54 @@ func TestNewSSRFSafeHTTPClient_HasDedicatedTransport(t *testing.T) {
 	}
 	if client.CheckRedirect == nil {
 		t.Fatal("expected SSRF redirect policy to be set")
+	}
+}
+
+// TestLLMTLSClientConfig_CertificateVerificationPinnedByDefault ensures the
+// shared outbound model TLS config (used by chat, multimodal VLM, embedding,
+// rerank and ASR transports) verifies certificates by default with a TLS 1.2
+// floor, and that WEKNORA_LLM_INSECURE_SKIP_VERIFY=true opts out — mirroring
+// the Java LLM client's ignoreSsl option.
+func TestLLMTLSClientConfig_CertificateVerificationPinnedByDefault(t *testing.T) {
+	t.Setenv("WEKNORA_LLM_INSECURE_SKIP_VERIFY", "")
+	cfg := LLMTLSClientConfig()
+	if cfg.InsecureSkipVerify {
+		t.Fatal("InsecureSkipVerify must be false by default")
+	}
+	if cfg.MinVersion != tls.VersionTLS12 {
+		t.Fatalf("MinVersion: want tls.VersionTLS12, got 0x%x", cfg.MinVersion)
+	}
+
+	t.Setenv("WEKNORA_LLM_INSECURE_SKIP_VERIFY", "true")
+	cfg = LLMTLSClientConfig()
+	if !cfg.InsecureSkipVerify {
+		t.Fatal("InsecureSkipVerify must be true when WEKNORA_LLM_INSECURE_SKIP_VERIFY=true")
+	}
+
+	t.Setenv("WEKNORA_LLM_INSECURE_SKIP_VERIFY", "TRUE")
+	cfg = LLMTLSClientConfig()
+	if !cfg.InsecureSkipVerify {
+		t.Fatal("env value should be case-insensitive")
+	}
+}
+
+// TestNewSSRFSafeTransport_PropagatesTLSConfig ensures the SSRF-safe transport
+// (which backs the multimodal VLM / embedding / rerank / ASR clients) carries
+// the shared model TLS config, so skipping verification via the env var applies
+// to those outbound calls too.
+func TestNewSSRFSafeTransport_PropagatesTLSConfig(t *testing.T) {
+	t.Setenv("WEKNORA_LLM_INSECURE_SKIP_VERIFY", "")
+	tr := NewSSRFSafeTransport(DefaultSSRFSafeHTTPClientConfig())
+	if tr.TLSClientConfig == nil {
+		t.Fatal("expected TLSClientConfig on SSRF-safe transport")
+	}
+	if tr.TLSClientConfig.InsecureSkipVerify {
+		t.Fatal("InsecureSkipVerify must be false by default")
+	}
+
+	t.Setenv("WEKNORA_LLM_INSECURE_SKIP_VERIFY", "true")
+	tr = NewSSRFSafeTransport(DefaultSSRFSafeHTTPClientConfig())
+	if !tr.TLSClientConfig.InsecureSkipVerify {
+		t.Fatal("InsecureSkipVerify must follow the env opt-in")
 	}
 }

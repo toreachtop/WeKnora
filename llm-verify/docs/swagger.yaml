@@ -1,0 +1,70 @@
+basePath: /api/v1
+consumes:
+- application/json
+definitions:
+  main.ChatRequest:
+    properties:
+      api_key:
+        description: APIKey 鉴权密钥
+        example: sk-xxx
+        type: string
+      base_url:
+        description: BaseURL 上游 LLM 兼容接口的根地址，例如 https://openapi.ai.sdd/v1
+        example: https://openapi.ai.sdd/v1
+        type: string
+      model:
+        description: Model 模型名称
+        example: deepseek-chat
+        type: string
+      query:
+        description: Query 发送给模型的内容
+        example: 你好
+        type: string
+    required:
+    - api_key
+    - base_url
+    - model
+    - query
+    type: object
+info:
+  contact: {}
+  description: 内网快速验证外呼 LLM 的 HTTPS 证书处理（WEKNORA_LLM_INSECURE_SKIP_VERIFY）。
+  title: LLM Verify Demo API
+  version: "1.0"
+paths:
+  /chat:
+    post:
+      consumes:
+      - application/json
+      description: 使用请求地址、模型名称、apikey、query 调用 OpenAI 兼容 /chat/completions。
+      parameters:
+      - description: 外呼 LLM 参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/main.ChatRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 上游模型返回（透传）
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 参数错误
+          schema:
+            additionalProperties: true
+            type: object
+        "502":
+          description: 上游调用失败
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 外呼 LLM 测试
+      tags:
+      - llm
+produces:
+- application/json
+swagger: "2.0"

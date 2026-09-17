@@ -233,7 +233,7 @@ func init() {
 }
 
 // ConfigureFromEnv 重新从环境变量应用日志配置。
-// 这允许在 main() 中加载 .env 后，让 LOG_LEVEL / LOG_PATH 立即生效。
+// 这允许在 main() 中加载 .env1 后，让 LOG_LEVEL / LOG_PATH 立即生效。
 func ConfigureFromEnv() {
 	loggerMu.Lock()
 	defer loggerMu.Unlock()

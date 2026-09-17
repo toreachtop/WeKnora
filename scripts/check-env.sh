@@ -36,7 +36,7 @@ echo ""
 
 cd "$PROJECT_ROOT"
 
-# 检查 .env 文件
+# 检查 .env1 文件
 log_info "检查 .env 文件..."
 if [ -f ".env" ]; then
     log_success ".env 文件存在"
@@ -52,9 +52,9 @@ fi
 echo ""
 log_info "检查必要的环境变量..."
 
-# 加载 .env 文件
+# 加载 .env1 文件
 set -a
-source .env
+source .env1
 set +a
 
 # 检查必要的环境变量

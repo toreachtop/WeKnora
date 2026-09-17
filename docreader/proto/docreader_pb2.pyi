@@ -128,7 +128,7 @@ class ParserEngineInfo(_message.Message):
     file_types: _containers.RepeatedScalarFieldContainer[str]
     available: bool
     unavailable_reason: str
-    def __init__(self, name: _Optional[str] = ..., description: _Optional[str] = ..., file_types: _Optional[_Iterable[str]] = ..., available: bool = ..., unavailable_reason: _Optional[str] = ...) -> None: ...
+    def __init__(self, name: _Optional[str] = ..., description: _Optional[str] = ..., file_types: _Optional[_Iterable[str]] = ..., available: _Optional[bool] = ..., unavailable_reason: _Optional[str] = ...) -> None: ...
 
 class ListEnginesResponse(_message.Message):
     __slots__ = ("engines",)

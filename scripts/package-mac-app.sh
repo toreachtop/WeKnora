@@ -79,8 +79,8 @@ RESOURCES_DIR="${DIST_DIR}/Contents/Resources"
 mkdir -p "${RESOURCES_DIR}/config"
 mkdir -p "${RESOURCES_DIR}/migrations/sqlite"
 
-if [ -f .env.lite.example ]; then
-    cp .env.lite.example "${RESOURCES_DIR}/.env"
+if [ -f .env1.lite.example ]; then
+    cp .env1.lite.example "${RESOURCES_DIR}/.env"
 fi
 if [ -d migrations/sqlite ]; then
     cp -r migrations/sqlite/* "${RESOURCES_DIR}/migrations/sqlite/"

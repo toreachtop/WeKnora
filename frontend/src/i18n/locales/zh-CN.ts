@@ -1980,7 +1980,7 @@ export default {
     },
     address: {
       label: '服务地址',
-      desc: '本地 Ollama 服务的 API 地址，由系统自动检测。如需修改，请在 .env 配置文件中设置',
+      desc: '本地 Ollama 服务的 API 地址，由系统自动检测。如需修改，请在 .env1 配置文件中设置',
       placeholder: 'http://localhost:11434',
       failed: '连接失败，请检查 Ollama 是否运行或服务地址是否正确'
     },

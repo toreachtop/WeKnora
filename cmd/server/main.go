@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/container"
@@ -40,6 +41,10 @@ import (
 )
 
 func main() {
+	// Load .env1 if present. Does NOT override existing env vars, so
+	// production deployments (env vars set by orchestrator) are unaffected.
+	_ = godotenv.Load()
+
 	// Set Gin mode
 	if os.Getenv("GIN_MODE") == "release" {
 		gin.SetMode(gin.ReleaseMode)

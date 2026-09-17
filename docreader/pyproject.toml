@@ -28,3 +28,11 @@ dependencies = [
     "textract==1.5.0",
     "trafilatura>=2.0.0",
 ]
+
+[tool.uv]
+# This project is NOT an installable package — it's a collection of scripts
+# run via `python -m docreader.main` with PYTHONPATH pointing to the repo root.
+# Setting package = false prevents uv from trying to build/install it (and from
+# pulling the unrelated PyPI "docreader" package that shadows local source).
+package = false
+

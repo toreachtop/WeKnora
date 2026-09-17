@@ -36,8 +36,8 @@ pip install uv          # docreader 使用 uv sync 安装依赖
 开发模式的核心思想：**基础设施跑在 Docker 里，`app` 与 `frontend` 跑在本地**，改代码即时重启，无需反复构建镜像。入口是 `scripts/dev.sh`（Makefile 的 `dev-*` 目标是它的包装）。
 
 ```bash
-# 1. 准备环境变量：dev.sh 会加载 .env（必须存在），再用 .env.local 覆盖（可选）
-cp .env.example .env
+# 1. 准备环境变量：dev.sh 会加载 .env1（必须存在），再用 .env1.local 覆盖（可选）
+cp .env1.example .env1
 
 # 2. 启动基础设施（ParadeDB/Postgres + Redis + docreader，默认还带 Langfuse）
 make dev-start                      # 等价 ./scripts/dev.sh start
@@ -99,7 +99,7 @@ Lite 模式把 SQLite（+sqlite-vec）与内存队列编译进单个二进制，
 
 ```bash
 make build-lite     # 先构建前端到 web/，再 CGO 构建 Go（tags: sqlite_fts5）；SKIP_FRONTEND=1 跳过前端
-make run-lite       # 依赖 .env.lite，构建并启动 WeKnora-lite
+make run-lite       # 依赖 .env1.lite，构建并启动 WeKnora-lite
 make package-lite   # 打 tarball 发行包（scripts/package-lite.sh）
 make package-mac-app  # 打 macOS .app（scripts/package-mac-app.sh）
 ```

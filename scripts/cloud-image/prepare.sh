@@ -134,7 +134,7 @@ curl -fsSL "${tarball_url}" -o "${tmp}/repo.tar.gz"
 tar -xzf "${tmp}/repo.tar.gz" -C "${tmp}" \
   --wildcards \
   '*/docker-compose.yml' \
-  '*/.env.example' \
+  '*/.env1.example' \
   '*/config/config.yaml'
 src=$(find "${tmp}" -maxdepth 1 -mindepth 1 -type d -name 'WeKnora-*' | head -1)
 if [[ -z "${src}" ]]; then
@@ -155,20 +155,20 @@ EOF
 
 echo "[prepare] 3/6 准备 .env (默认值, firstboot 会替换为随机密钥)"
 cd "${WEKNORA_DIR}"
-[[ -f .env ]] || cp .env.example .env
-sed -i 's/^GIN_MODE=.*/GIN_MODE=release/' .env || true
+[[ -f .env1 ]] || cp .env1.example .env1
+sed -i 's/^GIN_MODE=.*/GIN_MODE=release/' .env1 || true
 
 # 把 WEKNORA_VERSION 与 WEKNORA_REF 对齐, 让 docker compose 拉取与 ref 一致的
-# 镜像 tag。无条件覆盖, 避免 .env 残留上一次 prepare 留下的旧版本号。
+# 镜像 tag。无条件覆盖, 避免 .env1 残留上一次 prepare 留下的旧版本号。
 # Docker Hub 上 wechatopenai/weknora-* 的 tag 命名约定：
 #   - 浮动 tag：main（持续指向最新构建）
 #   - 固定 release tag：v 前缀 + semver（如 v0.7.2、v0.5.2）
 # 因此这里不剥 v、也不映射到 latest。
 WEKNORA_VERSION_VAL="${WEKNORA_REF}"
-if grep -qE '^WEKNORA_VERSION=' .env; then
-  sed -i "s|^WEKNORA_VERSION=.*|WEKNORA_VERSION=${WEKNORA_VERSION_VAL}|" .env
+if grep -qE '^WEKNORA_VERSION=' .env1; then
+  sed -i "s|^WEKNORA_VERSION=.*|WEKNORA_VERSION=${WEKNORA_VERSION_VAL}|" .env1
 else
-  echo "WEKNORA_VERSION=${WEKNORA_VERSION_VAL}" >>.env
+  echo "WEKNORA_VERSION=${WEKNORA_VERSION_VAL}" >>.env1
 fi
 echo "[prepare]   -> WEKNORA_VERSION=${WEKNORA_VERSION_VAL}"
 
