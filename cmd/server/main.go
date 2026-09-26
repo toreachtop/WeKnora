@@ -33,6 +33,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 
+	"github.com/Tencent/WeKnora/internal/application/service"
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/container"
 	"github.com/Tencent/WeKnora/internal/logger"
@@ -72,6 +73,7 @@ func main() {
 		router *gin.Engine,
 		resourceCleaner interfaces.ResourceCleaner,
 		systemSettingSvc interfaces.SystemSettingService,
+		modelCatalogSvc *service.ModelCatalogService,
 	) error {
 		// Create HTTP server
 		server := &http.Server{
@@ -85,6 +87,7 @@ func main() {
 		}
 
 		ctx, done := context.WithCancel(context.Background())
+		modelCatalogSvc.Start(ctx)
 
 		// Start the system_settings pubsub subscriber. Runs in its own
 		// goroutine and exits when ctx is cancelled at shutdown. Best-

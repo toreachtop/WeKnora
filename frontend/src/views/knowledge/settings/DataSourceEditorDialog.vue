@@ -205,6 +205,28 @@ const form = ref({
   sync_deletions: true,
 })
 
+// Yuque folder layout. The key lives in the raw settings bag, and a data source
+// created before this control existed carries no folder_mode at all — the
+// getter therefore reports the connector's own default (flat) rather than
+// rendering the select blank. Writing back is a no-op until the user picks
+// something, so opening an existing source can never change its behaviour.
+const yuqueFolderMode = computed({
+  get: () => (form.value.config.settings?.folder_mode === 'toc' ? 'toc' : 'none'),
+  set: (mode: string) => {
+    form.value.config.settings = { ...form.value.config.settings, folder_mode: mode }
+  },
+})
+
+// toc_only is an admission filter, and the connector only reads the table of
+// contents when folder_mode is 'toc' — under the flat layout the flag has no
+// effect at all, which is why the control is disabled there.
+const yuqueTOCOnly = computed({
+  get: () => form.value.config.settings?.toc_only === true,
+  set: (on: boolean) => {
+    form.value.config.settings = { ...form.value.config.settings, toc_only: on }
+  },
+})
+
 // Step 2: Resources
 const resources = ref<Resource[]>([])
 const loadingResources = ref(false)
@@ -449,6 +471,16 @@ async function ensureChildrenLoaded(id: string) {
         if (!existing.has(c.external_id)) merged.push(c)
       }
       resources.value = merged
+    } else {
+      // Connectors may conservatively advertise HasChildren to avoid an N+1
+      // probe. Once lazy loading proves this is a leaf, collapse it and retain
+      // that fact so another expand cannot trigger another empty request.
+      resources.value = resources.value.map(r => r.external_id === id
+        ? { ...r, has_children: false }
+        : r)
+      const expanded = new Set(expandedResourceIds.value)
+      expanded.delete(id)
+      expandedResourceIds.value = expanded
     }
     loadedChildrenIds.value = new Set(loadedChildrenIds.value).add(id)
   } catch (e: any) {
@@ -466,12 +498,20 @@ async function ensureChildrenLoaded(id: string) {
 
 const visibleTree = computed(() => {
   const roots = resources.value.filter(r => !r.parent_id)
-  const result: { resource: Resource; depth: number }[] = []
+  const result: { resource: Resource; depth: number; noticeAfter?: boolean }[] = []
   function walk(items: Resource[], depth: number) {
     for (const r of items) {
       result.push({ resource: r, depth })
       if (r.has_children && expandedResourceIds.value.has(r.external_id)) {
         walk(childrenMap.value.get(r.external_id) || [], depth + 1)
+      }
+      // Keep this visible after an empty root listing is recognized as a leaf.
+      if (
+        r.metadata?.hierarchy_limitation === 'cloud_top_level_containers' &&
+        (expandedResourceIds.value.has(r.external_id) ||
+          (!r.has_children && loadedChildrenIds.value.has(r.external_id)))
+      ) {
+        result.push({ resource: r, depth: depth + 1, noticeAfter: true })
       }
     }
   }
@@ -835,6 +875,12 @@ function selectType(def: ConnectorDef) {
   form.value.config.credentials = def.type === "confluence" ? { edition: "server" } : {}
   if (def.type === 'confluence') {
     form.value.config.settings = { ...form.value.config.settings, edition: 'server' }
+  }
+  // A new Yuque source opts into the book's folder hierarchy. Only on create:
+  // an existing source keeps what it was built with, so the "folder layout is
+  // owned by the connector" caveat never applies to sources that predate it.
+  if (def.type === 'yuque' && !isEdit.value) {
+    form.value.config.settings = { ...form.value.config.settings, folder_mode: 'toc' }
   }
   if (isGitLabConnector(def.type)) addGitLabProject()
   rssAuthHeaders.value = []
@@ -1720,9 +1766,12 @@ const drawerConfirmText = computed(() => {
           </div>
         </div>
         <div class="resource-picker__list" role="tree">
+          <template
+            v-for="{ resource: r, depth, noticeAfter } in visibleTree"
+            :key="noticeAfter ? `${r.external_id}__notice` : r.external_id"
+          >
           <div
-            v-for="{ resource: r, depth } in visibleTree"
-            :key="r.external_id"
+            v-if="!noticeAfter"
             class="resource-picker__row"
             :class="{
               'is-checked': resourceRowState(r.external_id) === 'checked',
@@ -1787,6 +1836,14 @@ const drawerConfirmText = computed(() => {
               >{{ resourceTypeLabel(r.type) }}</span>
             </span>
           </div>
+          <p
+            v-else
+            class="resource-picker__notice"
+            :style="{ '--depth': depth }"
+          >
+            {{ t('datasource.confluence.cloudFolderLimitation') }}
+          </p>
+          </template>
         </div>
       </div>
       <div v-else class="ds-resource-empty">
@@ -1892,6 +1949,47 @@ const drawerConfirmText = computed(() => {
           <t-checkbox v-model="form.sync_deletions">{{ t('datasource.syncDeletions') }}</t-checkbox>
         </div>
       </section>
+
+      <!-- Yuque only: how synced documents are laid out, and what may be admitted. -->
+      <section v-if="form.type === 'yuque'" class="setting-drawer__section">
+        <h4 class="setting-drawer__section-title">{{ t('datasource.yuqueFolderModeLabel') }}</h4>
+        <div class="form-item form-item--flat">
+          <div
+            class="option-group"
+            role="radiogroup"
+            :aria-label="t('datasource.yuqueFolderModeLabel')"
+          >
+            <button
+              type="button"
+              class="option-pill"
+              :class="{ 'is-active': yuqueFolderMode === 'toc' }"
+              role="radio"
+              :aria-checked="yuqueFolderMode === 'toc'"
+              @click="yuqueFolderMode = 'toc'"
+            >
+              {{ t('datasource.yuqueFolderModeToc') }}
+            </button>
+            <button
+              type="button"
+              class="option-pill"
+              :class="{ 'is-active': yuqueFolderMode === 'none' }"
+              role="radio"
+              :aria-checked="yuqueFolderMode === 'none'"
+              @click="yuqueFolderMode = 'none'"
+            >
+              {{ t('datasource.yuqueFolderModeNone') }}
+            </button>
+          </div>
+        </div>
+        <p class="form-desc">{{ t('datasource.yuqueFolderModeHint') }}</p>
+
+        <div class="form-item form-item--flat">
+          <t-checkbox v-model="yuqueTOCOnly" :disabled="yuqueFolderMode !== 'toc'">
+            {{ t('datasource.yuqueTOCOnly') }}
+          </t-checkbox>
+        </div>
+        <p class="form-desc">{{ t('datasource.yuqueTOCOnlyHint') }}</p>
+      </section>
     </template>
   </SettingDrawer>
 </template>
@@ -1912,7 +2010,7 @@ const drawerConfirmText = computed(() => {
   gap: 8px;
   flex: 1;
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--app-text-md);
   color: var(--td-text-color-placeholder);
 }
 
@@ -1941,7 +2039,7 @@ const drawerConfirmText = computed(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: var(--app-text-sm);
   font-weight: 600;
   border: 1px solid var(--td-component-stroke);
   color: var(--td-text-color-placeholder);
@@ -1961,7 +2059,7 @@ const drawerConfirmText = computed(() => {
 }
 
 .ds-step-check {
-  font-size: 14px;
+  font-size: var(--app-text-base);
 }
 
 .ds-loading-center {
@@ -1998,12 +2096,12 @@ const drawerConfirmText = computed(() => {
 }
 
 .ds-type-name {
-  font-size: 13px;
+  font-size: var(--app-text-md);
   font-weight: 600;
 }
 
 .ds-type-soon {
-  font-size: 10px;
+  font-size: var(--app-text-2xs);
   color: var(--td-text-color-placeholder);
   background: var(--td-bg-color-component);
   padding: 1px 6px;
@@ -2011,7 +2109,7 @@ const drawerConfirmText = computed(() => {
 }
 
 .ds-type-desc {
-  font-size: 11px;
+  font-size: var(--app-text-xs);
   color: var(--td-text-color-secondary);
   line-height: 1.5;
 }
@@ -2021,14 +2119,14 @@ const drawerConfirmText = computed(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: var(--app-text-md);
   line-height: 1.5;
   color: var(--td-text-color-secondary);
   flex-wrap: wrap;
 }
 
 .inline-alert__icon {
-  font-size: 15px;
+  font-size: var(--app-text-lg);
   flex-shrink: 0;
   color: var(--td-text-color-placeholder);
 }
@@ -2042,11 +2140,11 @@ const drawerConfirmText = computed(() => {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  font-size: 13px;
+  font-size: var(--app-text-md);
   font-weight: 500;
   color: var(--td-brand-color);
   white-space: nowrap;
-  transition: color 0.15s ease;
+  transition: color var(--app-motion-fast) ease;
 }
 
 .inline-alert__action:hover {
@@ -2072,12 +2170,12 @@ const drawerConfirmText = computed(() => {
   border: none;
   background: transparent;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--app-text-md);
   line-height: 1.5;
   color: var(--td-text-color-secondary);
   text-align: left;
   cursor: pointer;
-  transition: color 0.12s ease;
+  transition: color var(--app-motion-instant) ease;
 }
 
 .ds-setup-guide__toggle:hover,
@@ -2114,7 +2212,7 @@ const drawerConfirmText = computed(() => {
 }
 
 .ds-setup-step {
-  font-size: 13px;
+  font-size: var(--app-text-md);
   line-height: 1.5;
   color: var(--td-text-color-primary);
 }
@@ -2132,7 +2230,7 @@ const drawerConfirmText = computed(() => {
 
 .ds-perm-tag {
   display: inline-block;
-  font-size: 11px;
+  font-size: var(--app-text-xs);
   padding: 1px 5px;
   margin: 2px 4px 2px 0;
   border-radius: 3px;
@@ -2146,7 +2244,7 @@ const drawerConfirmText = computed(() => {
   align-items: center;
   gap: 4px;
   margin-top: 10px;
-  font-size: 13px;
+  font-size: var(--app-text-md);
 }
 
 .credential-faux-input {
@@ -2156,14 +2254,14 @@ const drawerConfirmText = computed(() => {
   height: 32px;
   padding: 0 4px 0 12px;
   background: var(--td-bg-color-container);
-  border: 1px solid var(--td-component-border, var(--td-component-stroke));
-  border-radius: 6px;
-  font-size: 13px;
-  transition: border-color 0.15s ease, background-color 0.15s ease;
+  border: 1px solid var(--td-component-border);
+  border-radius: var(--app-radius-sm);
+  font-size: var(--app-text-md);
+  transition: border-color var(--app-motion-fast) ease, background-color var(--app-motion-fast) ease;
 }
 
 .credential-faux-input:hover {
-  border-color: var(--td-brand-color-hover, var(--td-brand-color));
+  border-color: var(--td-brand-color-hover);
 }
 
 .credential-faux-input.is-empty {
@@ -2199,7 +2297,7 @@ const drawerConfirmText = computed(() => {
 
 .credential-status-icon {
   flex-shrink: 0;
-  font-size: 16px;
+  font-size: var(--app-text-xl);
 }
 
 .credential-status-icon.success {
@@ -2224,8 +2322,8 @@ const drawerConfirmText = computed(() => {
 .credential-actions :deep(.t-button--variant-text) {
   height: 24px;
   padding: 0 8px;
-  font-size: 12px;
-  border-radius: 4px;
+  font-size: var(--app-text-sm);
+  border-radius: var(--app-radius-xs);
 }
 
 .action-divider {
@@ -2243,7 +2341,7 @@ const drawerConfirmText = computed(() => {
 .credential-edit-actions :deep(.t-button) {
   height: 28px;
   padding: 0 12px;
-  font-size: 12px;
+  font-size: var(--app-text-sm);
 }
 
 .form-item {
@@ -2255,14 +2353,14 @@ const drawerConfirmText = computed(() => {
 }
 
 .form-item--flat :deep(.t-checkbox__label) {
-  font-size: 12px;
+  font-size: var(--app-text-sm);
   line-height: 1.5;
   color: var(--td-text-color-secondary);
 }
 
 .form-label {
   display: block;
-  font-size: 13px;
+  font-size: var(--app-text-md);
   font-weight: 500;
   margin-bottom: 6px;
   color: var(--td-text-color-primary);
@@ -2279,13 +2377,13 @@ const drawerConfirmText = computed(() => {
 
 .form-desc {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: var(--app-text-sm);
   line-height: 1.5;
   color: var(--td-text-color-placeholder);
 }
 
 .status-icon {
-  font-size: 16px;
+  font-size: var(--app-text-xl);
   flex-shrink: 0;
 }
 
@@ -2298,7 +2396,7 @@ const drawerConfirmText = computed(() => {
 }
 
 .footer-test-message {
-  font-size: 12px;
+  font-size: var(--app-text-sm);
   line-height: 1.4;
   flex: 1;
   min-width: 0;
@@ -2322,7 +2420,7 @@ const drawerConfirmText = computed(() => {
 
 .ds-resource-hint {
   margin: -8px 0 0;
-  font-size: 12px;
+  font-size: var(--app-text-sm);
   line-height: 1.5;
   color: var(--td-text-color-placeholder);
 }
@@ -2334,7 +2432,7 @@ const drawerConfirmText = computed(() => {
   gap: 8px;
   padding: 12px;
   border: 1px solid var(--td-border-level-1-color);
-  border-radius: 6px;
+  border-radius: var(--app-radius-sm);
   background: var(--td-bg-color-container);
 }
 
@@ -2342,7 +2440,7 @@ const drawerConfirmText = computed(() => {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 13px;
+  font-size: var(--app-text-md);
   font-weight: 500;
   color: var(--td-text-color-primary);
 
@@ -2356,7 +2454,7 @@ const drawerConfirmText = computed(() => {
 }
 
 .drive-folder-input__help {
-  font-size: 15px;
+  font-size: var(--app-text-lg);
   color: var(--td-text-color-placeholder);
   cursor: help;
 
@@ -2382,21 +2480,21 @@ const drawerConfirmText = computed(() => {
   min-height: 120px;
   padding: 24px 12px;
   border: 1px dashed var(--td-border-level-2-color);
-  border-radius: 6px;
+  border-radius: var(--app-radius-sm);
   background: var(--td-bg-color-page);
   text-align: center;
 }
 
 .ds-drive-placeholder .ds-empty-title {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--app-text-md);
   font-weight: 500;
   color: var(--td-text-color-primary);
 }
 
 .ds-drive-placeholder .ds-empty-desc {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--app-text-sm);
   line-height: 1.5;
   color: var(--td-text-color-placeholder);
 }
@@ -2417,7 +2515,7 @@ const drawerConfirmText = computed(() => {
 }
 
 .resource-picker__count {
-  font-size: 12px;
+  font-size: var(--app-text-sm);
   color: var(--td-text-color-secondary);
 }
 
@@ -2433,10 +2531,10 @@ const drawerConfirmText = computed(() => {
   border: none;
   background: transparent;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--app-text-sm);
   color: var(--td-text-color-placeholder);
   cursor: pointer;
-  transition: color 0.12s ease;
+  transition: color var(--app-motion-instant) ease;
 }
 
 .resource-picker__action:hover,
@@ -2447,7 +2545,7 @@ const drawerConfirmText = computed(() => {
 
 .resource-picker__action-sep {
   color: var(--td-text-color-disabled);
-  font-size: 12px;
+  font-size: var(--app-text-sm);
   user-select: none;
 }
 
@@ -2470,9 +2568,9 @@ const drawerConfirmText = computed(() => {
   min-height: 34px;
   margin-bottom: 2px;
   padding: 5px 8px 5px calc(8px + var(--depth) * 14px);
-  border-radius: 6px;
+  border-radius: var(--app-radius-sm);
   cursor: pointer;
-  transition: background 0.12s ease;
+  transition: background var(--app-motion-instant) ease;
 }
 
 .resource-picker__row:last-child {
@@ -2498,11 +2596,11 @@ const drawerConfirmText = computed(() => {
   justify-content: center;
   padding: 0;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--app-radius-xs);
   background: transparent;
   color: var(--td-text-color-placeholder);
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background var(--app-motion-instant) ease, color var(--app-motion-instant) ease;
 }
 
 .resource-picker__expand:hover,
@@ -2516,13 +2614,13 @@ const drawerConfirmText = computed(() => {
   width: 16px;
   height: 16px;
   border-radius: 3px;
-  border: 1.5px solid var(--td-component-border, var(--td-component-stroke));
+  border: 1.5px solid var(--td-component-border);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   box-sizing: border-box;
-  transition: background 0.12s ease, border-color 0.12s ease;
+  transition: background var(--app-motion-instant) ease, border-color var(--app-motion-instant) ease;
 }
 
 .resource-picker__check.is-checked,
@@ -2558,7 +2656,7 @@ const drawerConfirmText = computed(() => {
 
 .resource-picker__name {
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--app-text-md);
   line-height: 1.4;
   color: var(--td-text-color-primary);
   white-space: nowrap;
@@ -2568,12 +2666,25 @@ const drawerConfirmText = computed(() => {
 
 .resource-picker__type {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: var(--app-text-2xs);
   line-height: 1;
   padding: 2px 5px;
-  border-radius: 4px;
+  border-radius: var(--app-radius-xs);
   color: var(--td-text-color-placeholder);
   background: color-mix(in srgb, var(--td-text-color-placeholder) 8%, transparent);
+}
+
+.resource-picker__notice {
+  --depth: 0;
+  margin: 0 0 2px;
+  padding: 4px 8px 4px calc(8px + var(--depth) * 14px);
+  font-size: var(--app-text-xs);
+  line-height: 1.5;
+  color: var(--td-text-color-placeholder);
+}
+
+.resource-picker__notice:last-child {
+  margin-bottom: 0;
 }
 
 /* --- Step 2: empty state --- */
@@ -2583,14 +2694,14 @@ const drawerConfirmText = computed(() => {
 }
 
 .ds-empty-title {
-  font-size: 14px;
+  font-size: var(--app-text-base);
   font-weight: 600;
   color: var(--td-text-color-primary);
   margin: 0 0 4px;
 }
 
 .ds-empty-desc {
-  font-size: 12px;
+  font-size: var(--app-text-sm);
   color: var(--td-text-color-secondary);
   margin: 0 0 16px;
 }
@@ -2608,7 +2719,7 @@ const drawerConfirmText = computed(() => {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  font-size: 13px;
+  font-size: var(--app-text-md);
   color: var(--td-text-color-primary);
   line-height: 1.5;
 }
@@ -2620,7 +2731,7 @@ const drawerConfirmText = computed(() => {
   border: 1px solid var(--td-component-stroke);
   background: var(--td-bg-color-secondarycontainer);
   color: var(--td-text-color-secondary);
-  font-size: 11px;
+  font-size: var(--app-text-xs);
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -2645,7 +2756,7 @@ const drawerConfirmText = computed(() => {
 
 .custom-headers-desc {
   margin: 0 0 10px 0;
-  font-size: 12px;
+  font-size: var(--app-text-sm);
   line-height: 1.5;
   color: var(--td-text-color-placeholder);
 }
@@ -2675,7 +2786,7 @@ const drawerConfirmText = computed(() => {
     height: 32px;
     padding: 0;
     color: var(--td-text-color-placeholder);
-    border-radius: 6px;
+    border-radius: var(--app-radius-sm);
     transition: all 0.18s ease;
 
     &:hover {
@@ -2690,11 +2801,11 @@ const drawerConfirmText = computed(() => {
   border: none;
   background: transparent;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--app-text-md);
   font-weight: 500;
   color: var(--td-brand-color);
   cursor: pointer;
-  transition: color 0.12s ease;
+  transition: color var(--app-motion-instant) ease;
 }
 
 .ds-empty-retry:hover,
@@ -2711,7 +2822,7 @@ const drawerConfirmText = computed(() => {
   padding: 3px;
   background: var(--td-bg-color-secondarycontainer);
   border: 1px solid var(--td-component-stroke);
-  border-radius: 8px;
+  border-radius: var(--app-radius-md);
   width: fit-content;
   max-width: 100%;
 }
@@ -2723,15 +2834,15 @@ const drawerConfirmText = computed(() => {
   padding: 4px 10px;
   min-height: 28px;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--app-radius-sm);
   background: transparent;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--app-text-sm);
   line-height: 1.3;
   color: var(--td-text-color-secondary);
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition: background var(--app-motion-fast) ease, color var(--app-motion-fast) ease, border-color var(--app-motion-fast) ease;
 }
 
 .option-pill:hover {
@@ -2761,7 +2872,7 @@ const drawerConfirmText = computed(() => {
   gap: 8px;
   padding: 12px;
   border: 1px solid var(--td-component-stroke);
-  border-radius: 6px;
+  border-radius: var(--app-radius-sm);
   background: var(--td-bg-color-container);
 }
 
@@ -2777,7 +2888,7 @@ const drawerConfirmText = computed(() => {
 -->
 <style lang="less">
 .datasource-editor-drawer .setting-drawer__header-icon:has(.datasource-header-icon__img) {
-  background: var(--td-bg-color-container, #fff);
+  background: var(--td-bg-color-container);
   box-shadow: inset 0 0 0 1px var(--td-component-stroke);
 }
 
