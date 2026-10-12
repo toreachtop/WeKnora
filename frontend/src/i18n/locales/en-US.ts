@@ -810,6 +810,7 @@ export default {
     channelConfluence: 'Confluence',
     channelYuque: 'Yuque',
     channelGitLab: 'GitLab',
+    channelSeafile: 'Seafile',
     channelIma: 'Tencent IMA',
     channelUpload: 'Upload',
     channelManual: 'Manual',
@@ -972,8 +973,8 @@ export default {
     statusDraft: 'Draft',
     noDescription: 'No description',
     emptyKnowledgeDragDrop: 'Knowledge is empty, drag and drop to upload',
-    pdfDocFormat: 'pdf, doc format files, max 10M',
-    textMarkdownFormat: 'text, markdown format files, max 200K',
+    pdfDocFormat: 'pdf, doc format files, max {size}MB',
+    textMarkdownFormat: 'text, markdown format files, max {size}MB',
     dragFileNotText: 'Please drag files instead of text or links',
     searchPlaceholder: 'Search knowledge bases...',
     docSearchPlaceholder: 'Search document names...',
@@ -1008,6 +1009,11 @@ export default {
     chunkLoadFailed: 'Failed to load chunks'
   },
   uploadConfirm: {
+    imageEmbeddingModel: "Image indexing embedding model",
+    imageIndexInherited: "Image indexing uses the embedding model assigned to this knowledge base. Change it in knowledge base settings.",
+    imageVectorIndex: "Image vector indexing for this import",
+    imageVectorIndexHint: "Generate image vectors for this upload or reparse without changing knowledge base defaults. Retrieval still follows the knowledge base image vector search setting.",
+    imageVectorRequiresIndex: "Enable vector indexing in knowledge base settings first.",
     documentSummary: "Document summary",
     documentSummaryDescription: "Choose whether to automatically summarize documents in this import.",
     generateSummary: "Generate document summaries",
@@ -1168,6 +1174,12 @@ export default {
       cancelled: 'Cancelled'
     },
     errorCode: {
+      DOCREADER_UNAVAILABLE: "Document parsing service unavailable",
+      DOCREADER_UNAVAILABLE_SUGGESTION: "Cannot connect to DocReader, or the connection was interrupted. Check service health, restart loops, and network access. Retry after recovery; uploading the file again is unnecessary.",
+      DOCREADER_TIMEOUT: "Document parsing timed out",
+      DOCREADER_TIMEOUT_SUGGESTION: "Check DocReader health and load before retrying. Split large files if needed.",
+      DOCREADER_PARSE_FAILED: "Document parsing failed",
+      DOCREADER_PARSE_FAILED_SUGGESTION: "Check the file format and ask an administrator to inspect the DocReader logs for this attempt.",
       TASK_STALLED: 'Stopped after no progress',
       TASK_STALLED_SUGGESTION: 'Processing made no progress past the time limit and had no task left in the queue, so it was marked as failed. Click Retry; if this keeps happening, check the service this stage depends on (document parsing, model, or vector store).',
       UNKNOWN_SUGGESTION: 'Check the application logs for details.'
@@ -3495,11 +3507,11 @@ export default {
         imageLoadError: 'Image failed to load',
         noCaption: 'No caption',
         noOcr: 'No text recognized',
-        caption: 'Caption',
-        ocr: 'Text in image (OCR)',
-        attributes: 'Attributes',
+        caption: 'Image description',
+        ocr: 'Text in image',
+        attributes: 'Image attributes',
         source: 'Source document',
-        details: 'Details',
+        details: 'Basic information',
         dimensions: 'Size',
         status: 'Status',
         openSource: 'Open source document',
@@ -3614,6 +3626,16 @@ export default {
       helpZoomDesc: 'Zoom the canvas',
       neighborsProgress: 'Showing {visible} of {total} neighbors ({hidden} not loaded)',
       neighborsAllShown: 'All {total} neighbors are already on the canvas (click Expand to focus on this node’s subgraph)',
+      graphNavigationHint: 'Drag the canvas to pan · Scroll to zoom',
+      focusGroup: 'Focus this group',
+      focusGroupViewing: 'Viewing: {name}',
+      focusGroupBack: 'Back to full graph',
+      focusGroupSwitch: 'Switch to another group',
+      unlinkedHidden: '{count} unlinked pages hidden',
+      unlinkedSection: 'Unlinked pages · {count}',
+      offscreenSection: 'No visible connections (links exist) · {count}',
+      hideUnlinked: 'Hide unlinked pages ({count})',
+      showUnlinked: 'Show unlinked pages ({count})',
       neighborsNone: 'This page has no linked neighbors',
       neighborsCenterUnreachable: 'Showing {visible} of {total} neighbors ({hidden} unreachable: dead links, filtered, or deleted)',
       neighborsOverviewHidden: 'Showing {visible} of {total} neighbors ({hidden} outside the overview — click Expand to pivot here)',
@@ -3953,6 +3975,9 @@ export default {
         customInstructionsPlaceholder: 'For example: prioritize nameplates, model numbers, alarm codes, and table units…',
         imageAttrsLabel: 'Image attribute observation',
         imageAttrsDescription: 'When on, each image is first observed for attributes and described, then the attributes decide whether an OCR round runs for the text in the image. When off, the basic mode applies: every image is described and OCR runs for all of them',
+        imageVectorLabel: 'Image vector search',
+        imageVectorDescription: 'When on, each image is also encoded by the embedding model itself after its description is generated, so searches can find images by what they show even where the description leaves it out. Needs an embedding model that takes images; costs one extra embedding call per image and widens the vector search pool. Applies to documents ingested or re-parsed afterwards; scanned PDF pages are skipped',
+        imageVectorModelUnsupported: 'The current embedding model does not declare image input, so no image vectors will be indexed or recalled',
         imageAttrsSchemaLabel: 'Observable image attributes',
         imageAttrsSchemaDescription: 'The model observes the attributes below (defined by the backend registry) to drive the OCR policy',
         imageAttrsOcrConditions: 'Trigger OCR based on the observed attribute conditions',
@@ -4025,6 +4050,7 @@ export default {
         desktopRetry: 'Reconnect',
         notStarted: 'The terminal is not running yet. Starting it connects to this conversation\'s sandbox, creating or resuming one if none is available.',
         paused: 'This conversation\'s sandbox is paused. Starting the terminal resumes it.',
+        stopped: 'This conversation\'s sandbox is not running: it was stopped, or reclaimed after being idle. Starting the terminal restarts it; if it was reclaimed, a new sandbox is created and previous files and installed software are not kept.',
         start: 'Start terminal',
         connecting: 'Connecting to sandbox…',
         needsProvision: 'This conversation has no running sandbox. Creating one starts a new sandbox, billed according to your workspace configuration.',
@@ -4035,6 +4061,8 @@ export default {
         retry: 'Reconnect',
         sessionEnded: 'Terminal session ended',
         idleDisconnected: 'The terminal disconnected after being idle. The sandbox will pause on its own TTL. You can reconnect.',
+        idleDisconnectedNewShell: 'The terminal disconnected after being idle and its shell has ended (background jobs started with nohup keep running). Reconnecting opens a new shell.',
+        disconnectedNewShell: 'Connection lost and the terminal\'s shell has ended (background jobs started with nohup keep running). Reconnecting opens a new shell.',
         authRevoked: 'Your session is no longer valid, so the terminal was disconnected. Sign in again, then reconnect.',
     },
     questionMinimapTitle: 'Q&A',
@@ -4075,6 +4103,13 @@ export default {
     referenceSourceView: 'View in original',
     referenceSourceRelocate: 'Locate again',
     referenceSourceLocating: 'Locating the cited passage…',
+    referenceSourceExact: "Located the source passage",
+    referenceSourcePartial: "Verified source passages highlighted; part of the citation remains unmatched",
+    referenceSourceBlock: "Located the source region; exact text not confirmed",
+    referenceSourceAmbiguous: "Multiple matching passages; the location is ambiguous",
+    referenceSourceStale: "The source or content changed; this citation cannot be located precisely",
+    referenceSourcePrevious: "Previous citation location",
+    referenceSourceNext: "Next citation location",
     referenceSourceFoundPage: 'Found on page {page}',
     referenceSourceNotFound: 'Could not pinpoint the cited passage; the original is open',
     referenceSourceOpenWeb: 'Open the web page at this passage',
@@ -4368,35 +4403,26 @@ export default {
       },
       sections: {
         access: {
-          tab: 'Accounts & access {count}',
-          title: 'Accounts & access',
-          description: 'Manage system administrators, public registration, and workspace-creation rules.'
+          title: 'Registration & access',
+          description: 'Manage registration, password requirements, and workspace-creation rules.'
         },
         tenant: {
-          tab: 'Workspace defaults {count}',
           title: 'Workspace defaults',
           description: 'Set initial quotas and compatibility behavior for new workspaces without rewriting existing workspaces.'
         },
         runtime: {
-          tab: 'Runtime & concurrency {count}',
           title: 'Runtime & concurrency',
           description: 'Configure concurrency capacity for background worker pools and model services.',
           restartHint: 'Worker settings require restart'
         },
         security: {
-          tab: 'Network security {count}',
           title: 'Network security',
           description: 'Manage the SSRF allowlist and whether the Docker sandbox is allowed (a local docker.sock is equivalent to root on the host).'
         },
         other: {
-          tab: 'Other {count}',
           title: 'Other settings',
           description: 'Settings in this deployment that are not part of a standard product group.'
         }
-      },
-      runtimeTable: {
-        setting: 'Setting and purpose',
-        value: 'Current value'
       },
       runtime: {
         title: 'Task Queue Runtime',
@@ -4607,7 +4633,7 @@ export default {
       },
       keyLabels: {
         auth: {
-          registration_mode: 'Self-service registration mode',
+          registration_mode: 'Registration mode',
           default_tenant_mode: 'Default workspace provisioning',
           complex_password_enabled: 'Require complex password'
         },
@@ -4638,7 +4664,7 @@ export default {
       },
       keyDescriptions: {
         auth: {
-          registration_mode: 'Self-service registration mode. self_serve = anyone can register an account; invite_only = public registration is disabled and only Owners/Admins can invite. Takes effect immediately after saving, but use self_serve with care (the public internet will send spam sign-ups).',
+          registration_mode: 'Registration mode. Open registration allows anyone to create an account; invitation registration requires a valid invitation link; disabled registration prevents account creation while existing accounts can still accept invitations. Changes take effect immediately.',
           default_tenant_mode: 'Workspace provisioning after public registration. create_personal creates an Owner workspace; tenantless creates only the account until the user accepts an invitation or creates a workspace. Applies to new users only.',
           complex_password_enabled: 'Whether to require complex passwords. When enabled, passwords must contain uppercase and lowercase letters, numbers, and special characters. Changes take effect immediately and only apply to newly registered users or new password changes/resets. Special characters include {specialChars}'
         },
@@ -4671,7 +4697,8 @@ export default {
         auth: {
           registration_mode: {
             self_serve: 'Self-service (anyone can register)',
-            invite_only: 'Invite only (public registration disabled)'
+            invite_register: 'Invitation registration (valid link required)',
+            invite_only: 'Registration disabled (existing accounts can accept invitations)'
           },
           default_tenant_mode: {
             create_personal: 'Create personal workspace',
@@ -4715,34 +4742,45 @@ export default {
         success: 'Reset to default',
         failed: 'Reset failed'
       },
-      admins: {
-        label: 'System administrators',
-        description: 'Users with platform-level privileges. Type an email and press Enter to promote a user; click × on a tag to revoke. You (yourself) are an administrator and are not shown in the list — you cannot revoke your own access.',
-        placeholder: 'Type a user email and press Enter',
-        loadFailed: 'Failed to load system administrators',
-        saveSuccess: 'System administrators updated',
-        saveFailed: 'Failed to update system administrators',
-        confirm: {
-          promote: {
-            header: 'Promote to system administrator',
-            body: 'Promote {email} to system administrator? This user will gain platform-level privileges: access to every workspace, system settings, and the admin roster itself.',
-            confirmBtn: 'Promote'
-          },
-          revoke: {
-            header: 'Revoke system administrator',
-            body: 'Revoke system-administrator privileges from {email}? They will lose access to all system-level features.',
-            confirmBtn: 'Revoke'
-          }
-        }
+      userList: {
+        title: 'Platform users',
+        rowLabel: 'User management',
+        rowDesc: 'View every registered user across workspaces, with pagination and username/email filtering.',
+        searchPlaceholder: 'Filter by username or email (current page)',
+        refresh: 'Refresh',
+        active: 'Active',
+        inactive: 'Disabled',
+        colUsername: 'Username',
+        colStatus: 'Status',
+        colRole: 'Role',
+        colCreated: 'Created',
+        colAction: 'Actions',
+        prev: 'Previous',
+        next: 'Next',
+        pageCount: '{shown} shown / {total} on page',
+        enable: 'Enable',
+        disable: 'Disable',
+        resetPassword: 'Reset password',
+        confirmDisable: 'Disable account {name}? Their active sessions will be revoked immediately.',
+        confirmEnable: 'Enable account {name}?',
+        enabledMsg: 'Enabled {name}',
+        disabledMsg: 'Disabled {name}',
+        actionFailed: 'Action failed',
+        loadFailed: 'Failed to load users',
+        roleAdmin: 'System admin',
+        roleUser: 'Regular user',
+        confirmRevoke: 'Revoke system-admin privileges from {name}?',
+        confirmPromote: 'Promote {name} to system administrator?',
+        revokeBtn: 'Revoke',
+        promoteBtn: 'Promote',
+        revokedMsg: 'Revoked admin privileges from {name}',
+        promotedMsg: 'Promoted {name} to system administrator',
+        roleFailed: 'Failed to change role',
       },
       passwordReset: {
-        label: 'Reset user password',
-        description: 'Set a new password for another user who cannot sign in. A successful reset invalidates all of that user\'s current sessions, so they must sign in again with the new password.',
-        action: 'Reset password',
         dialogTitle: 'Reset another user\'s password',
         warning: 'This is a high-risk action. Verify the user email carefully. You cannot reset your own password here.',
         emailLabel: 'User email',
-        emailPlaceholder: 'Enter the email of the user to reset',
         newPasswordLabel: 'New password',
         newPasswordPlaceholder: 'Enter new password',
         confirmPasswordLabel: 'Confirm new password',
@@ -4752,8 +4790,6 @@ export default {
         failed: 'Failed to reset password',
       },
       createUser: {
-        label: 'Create user',
-        description: 'Provision a new local user account. If the platform\'s default workspace mode is set to "create personal", the user gets a personal workspace just like a self-registered user would.',
         action: 'Create user',
         dialogTitle: 'Create a new user',
         warning: 'This is a high-risk action. Verify the username and email carefully — they are how the new user will sign in.',
@@ -4776,10 +4812,6 @@ export default {
           usernameLength: 'Username must be 2-50 characters',
           emailRequired: 'Enter an email address',
           emailInvalid: 'Enter a valid email address',
-          passwordRequired: 'Enter a new password',
-          passwordLength: 'Password must be 8-32 characters',
-          passwordLetter: 'Password must contain a letter',
-          passwordNumber: 'Password must contain a number',
           confirmRequired: 'Enter the new password again',
           passwordMismatch: 'The passwords do not match'
         },
@@ -5061,6 +5093,8 @@ export default {
       dimensionOverrideDesc: 'Enable only if the provider documentation says this model accepts a dimensions parameter.',
       supportsVisionLabel: 'Supports Vision / Multimodal',
       supportsVisionDesc: 'Whether the model accepts image and multimodal input',
+      embeddingImageInputLabel: 'Image Input',
+      embeddingImageInputDesc: 'The model embeds images into the same vector space as text. Catalogued models are detected automatically; declare it for custom models',
       contextWindowLabel: 'Context Window',
       contextWindowPlaceholder: 'Default {value}',
       contextWindowDesc: 'How many tokens this model can take in one request. Agent history compaction uses this limit. Leave empty for the default 200000 (200K). Use the provider’s real window — a larger guess means compaction never fires and the provider rejects the request.',
@@ -5106,6 +5140,7 @@ export default {
   },
   language: {
     zhCN: '简体中文',
+    zhTW: 'Traditional Chinese',
     enUS: 'English',
     ruRU: 'Русский',
     koKR: '한국어',
@@ -5487,6 +5522,14 @@ export default {
       documentsPlaceholder: 'Enter one candidate document per line',
       documentsHint: 'Each non-empty line is sent as a separate document to the ReRank model',
       imageFile: 'Image file',
+      similarityMode: 'Similarity',
+      similarityQuery: 'Query',
+      similarityQueryPlaceholder: 'Enter a query, e.g. a dog running on grass',
+      similarityCandidates: 'Candidates',
+      similarityCandidatesPlaceholder: 'One candidate text per line',
+      similarityHint: 'The query is embedded as a search query and the candidates as documents, as in retrieval; results are sorted by cosine similarity, highest first',
+      similarityImage: 'Candidate image (optional)',
+      similarityImageCandidate: 'Image',
       audioFile: 'Audio file',
       chooseFile: 'Choose file',
       parameters: 'Request parameters',
@@ -6855,6 +6898,12 @@ export default {
       paths: 'Directories', pathsPlaceholder: 'One directory per line; leave empty to sync the whole project',
       addProject: 'Add project', projectRequired: 'Add at least one GitLab project',
     },
+    seafile: {
+      baseUrl: 'Seafile URL', apiToken: 'API token',
+      apiTokenHint: 'Generate it under "Settings → Web API token" in Seafile; the account only needs read access to the libraries you select, and the token is never sent with file downloads.',
+      singleLibraryOnly: 'A data source syncs one library; clear the current library before selecting another.',
+      selectionRequired: 'Select at least one library, folder or file',
+    },
     resourceHint: 'Select the spaces or folders to sync',
     untitled: 'Untitled',
     resourceLoadFailed: 'Failed to load resources',
@@ -6868,6 +6917,10 @@ export default {
     guideStep1_notion: 'Open the page or database you want to sync in Notion',
     guideStep2_notion: 'Click the "···" menu at the top right, select "Connect to" or "Add connections"',
     guideStep3_notion: 'Search and select your Integration app, then come back and click Retry',
+    noResourcesDesc_seafile: 'The token can reach no libraries, or every library is encrypted (encrypted libraries cannot be synced)',
+    guideStep1_seafile: 'Sign in to Seafile and confirm the account can read at least one unencrypted library',
+    guideStep2_seafile: 'Generate or regenerate the token under "Settings → Web API token"',
+    guideStep3_seafile: 'Come back, enter the new token and click Retry',
     permissionDocLink: 'View Feishu wiki permission docs',
     syncScheduleLabel: 'Sync schedule',
     conflictLabel: 'Conflict strategy',
@@ -6926,7 +6979,8 @@ export default {
       dingtalk: 'DingTalk Docs',
       rss: 'RSS / Atom Feed',
       ima: 'Tencent IMA',
-      gitlab: 'GitLab'
+      gitlab: 'GitLab',
+      seafile: 'Seafile'
     },
     connectorDesc: {
       feishu: 'Sync documents, spreadsheets and files from Feishu Wiki',
@@ -6939,7 +6993,8 @@ export default {
       dingtalk: 'Sync online documents from DingTalk knowledge bases',
       rss: 'Sync articles from RSS / Atom feeds',
       ima: 'Sync documents, notes and files from Tencent IMA knowledge bases (AI sessions and video parses are not supported)',
-      gitlab: 'Sync files from GitLab projects'
+      gitlab: 'Sync files from GitLab projects',
+      seafile: 'Sync folders and files from Seafile libraries'
     },
     drive: {
       folderTokenLabel: 'Drive folder token',
@@ -7024,6 +7079,9 @@ export default {
     yuqueFolderModeHint: 'Files documents by their Yuque table-of-contents path. Note: folder moves made in the knowledge base afterwards are overwritten by the Yuque structure the next time that document syncs.',
     yuqueTOCOnly: 'Sync only documents visible in the Yuque TOC',
     yuqueTOCOnlyHint: 'Requires the "Mirror the Yuque TOC" layout. Documents already in the knowledge base are untouched — one the Yuque TOC does not list is simply no longer added, never deleted.',
+    dingtalkIngestLabel: 'DingTalk ingestion scope',
+    dingtalkIncludeUploadedFiles: 'Ingest uploaded files (docx / pptx / xlsx / pdf)',
+    dingtalkIncludeUploadedFilesHint: 'Off by default. When on, Word / PowerPoint / Excel / PDF files uploaded to the selected scope are downloaded and parsed into the knowledge base, up to 64 MiB per file; their text counts towards storage and embedding cost. When off they are simply skipped — the sync log says the switch is not enabled, and copies already in the knowledge base are kept.',
     prereqBarText_dingtalk: 'First time? Click to see the DingTalk app setup guide',
     prereqStep1Brief_dingtalk: 'Create an internal enterprise app',
     prereqStep1Desc_dingtalk: 'Create an internal app in DingTalk Open Platform and copy its Client ID and Client Secret.',
@@ -7064,7 +7122,8 @@ export default {
     resourceType: {
       wikiSpace: 'Wiki Space',
       docCategory: 'Document Tag',
-      book: 'Yuque Book'
+      book: 'Yuque Book',
+      library: 'Seafile Library'
     },
     neverSynced: 'Never synced',
     justNow: 'Just now',
@@ -7076,7 +7135,15 @@ export default {
       dingtalk_resource_failed: 'DingTalk resource is unavailable; check access and the saved selection, then retry.',
       deletion_lookup_failed: 'Failed to look up the item before deletion; see server logs',
       deletion_failed: 'Deletion failed; see server logs',
-      ingest_failed: 'Ingest failed; see server logs'
+      ingest_failed: 'Ingest failed; see server logs',
+      seafile_permission_denied: 'Access to the Seafile file was denied; check the library permissions of the token owner.',
+      seafile_not_found: 'The Seafile file no longer exists or was moved; the next sync retries it.',
+      seafile_file_too_large: 'The Seafile file exceeds the size limit; raise MAX_FILE_SIZE_MB or shrink the file.',
+      seafile_empty_file: 'The Seafile file is empty and was skipped.',
+      seafile_source_changed: 'The Seafile file changed while it was being fetched; the next sync retries it.',
+      seafile_invalid_response: 'Seafile returned a response that could not be parsed; check the server version and reverse proxy.',
+      seafile_ssrf_blocked: 'The Seafile download URL was blocked by the SSRF policy; add the fileserver host to SSRF_WHITELIST.',
+      seafile_fetch_failed: 'Failed to fetch the file from Seafile; the next sync retries it.'
     }
   },
   integrations: {
